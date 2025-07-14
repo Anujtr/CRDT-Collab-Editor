@@ -1,0 +1,48 @@
+{
+  "name": "crdt-collab-editor",
+  "version": "1.0.0",
+  "description": "A production-ready real-time collaborative text editor built with CRDTs",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "test:integration": "cd tests && npm run test:integration",
+    "test:chaos": "cd tests && npm run test:chaos",
+    "docker:build": "docker-compose -f infra/docker-compose.yml build",
+    "docker:up": "docker-compose -f infra/docker-compose.yml up",
+    "docker:down": "docker-compose -f infra/docker-compose.yml down",
+    "docker:logs": "docker-compose -f infra/docker-compose.yml logs -f",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:frontend": "cd frontend && npm run lint",
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install && cd ../tests && npm install"
+  },
+  "keywords": [
+    "crdt",
+    "collaborative",
+    "editor",
+    "real-time",
+    "websocket",
+    "redis",
+    "yjs",
+    "slate.js"
+  ],
+  "author": "Anuj Tripathi",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend",
+    "tests",
+    "shared"
+  ]
+}

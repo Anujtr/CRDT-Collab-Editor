@@ -1,0 +1,19 @@
+{
+  "name": "crdt-collab-editor-shared",
+  "version": "1.0.0",
+  "description": "Shared types and utilities for CRDT collaborative editor",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "yjs": "^13.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.5",
+    "typescript": "^5.1.6"
+  }
+}
