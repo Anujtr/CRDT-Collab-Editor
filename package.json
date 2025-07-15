@@ -21,8 +21,7 @@
     "docker:logs": "docker-compose -f infra/docker-compose.yml logs -f",
     "lint": "npm run lint:backend && npm run lint:frontend",
     "lint:backend": "cd backend && npm run lint",
-    "lint:frontend": "cd frontend && npm run lint",
-    "postinstall": "cd backend && npm install && cd ../frontend && npm install && cd ../tests && npm install"
+    "lint:frontend": "cd frontend && npm run lint"
   },
   "keywords": [
     "crdt",
