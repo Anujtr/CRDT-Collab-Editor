@@ -24,6 +24,7 @@ import {
   responseTimeMiddleware,
   securityLoggerMiddleware 
 } from './middleware/logging';
+import { metricsMiddleware } from './middleware/metrics';
 
 // Import routes
 import apiRoutes from './routes/index';
@@ -100,6 +101,7 @@ class Server {
     // Custom middleware
     this.app.use(correlationIdMiddleware);
     this.app.use(responseTimeMiddleware);
+    this.app.use(metricsMiddleware);
     this.app.use(securityLoggerMiddleware);
     this.app.use(httpLogger);
 

@@ -4,6 +4,7 @@ import { UserModel } from '../models/User';
 import { AuthenticatedSocket, ConnectionManager } from './connectionManager';
 import { Permission } from '../../../shared/src/types/auth';
 import { RedisClient } from '../config/database';
+import { metricsService } from '../services/metricsService';
 import logger from '../utils/logger';
 
 export class SocketHandlers {
@@ -15,7 +16,11 @@ export class SocketHandlers {
 
   setupHandlers(): void {
     this.io.on('connection', (socket: Socket) => {
+      const connectionStartTime = Date.now();
       logger.info('New socket connection', { socketId: socket.id, ip: socket.handshake.address });
+      
+      // Track WebSocket connection metrics
+      metricsService.recordWebSocketConnection(true);
 
       // Set up authentication timeout
       const authTimeout = setTimeout(() => {
@@ -31,31 +36,42 @@ export class SocketHandlers {
 
       // Handle authentication
       socket.on('authenticate', async (data) => {
+        metricsService.recordWebSocketMessage('authenticate', 'in');
         await this.handleAuthentication(socket as AuthenticatedSocket, data, authTimeout);
       });
 
       // Handle document operations (requires authentication)
       socket.on('join-document', async (data) => {
+        metricsService.recordWebSocketMessage('join-document', 'in');
         await this.handleJoinDocument(socket as AuthenticatedSocket, data);
       });
 
       socket.on('leave-document', async (data) => {
+        metricsService.recordWebSocketMessage('leave-document', 'in');
         await this.handleLeaveDocument(socket as AuthenticatedSocket, data);
       });
 
       // Handle CRDT updates
       socket.on('document-update', async (data) => {
+        metricsService.recordWebSocketMessage('document-update', 'in');
         await this.handleDocumentUpdate(socket as AuthenticatedSocket, data);
       });
 
       // Handle cursor/selection updates
       socket.on('cursor-update', async (data) => {
+        metricsService.recordWebSocketMessage('cursor-update', 'in');
         await this.handleCursorUpdate(socket as AuthenticatedSocket, data);
       });
 
       // Handle disconnection
       socket.on('disconnect', (reason) => {
         clearTimeout(authTimeout);
+        
+        // Track connection duration
+        const connectionDuration = (Date.now() - connectionStartTime) / 1000;
+        metricsService.recordWebSocketConnectionDuration(connectionDuration);
+        metricsService.recordWebSocketConnection(false);
+        
         this.handleDisconnection(socket as AuthenticatedSocket, reason);
       });
 
@@ -178,17 +194,25 @@ export class SocketHandlers {
         return;
       }
 
+      // Track document operation
+      metricsService.recordDocumentOperation('join', documentId);
+
       // Join Socket.IO room
       await socket.join(`document:${documentId}`);
 
       // Get current users in document
       const users = ConnectionManager.getDocumentUserList(documentId);
+      
+      // Update collaborator metrics
+      metricsService.setCollaboratorCount(documentId, users.length);
 
       // Notify user of successful join
       socket.emit('document-joined', {
         documentId,
         users: users.filter(u => u.userId !== socket.user!.userId) // Exclude self
       });
+      
+      metricsService.recordWebSocketMessage('document-joined', 'out');
 
       // Notify other users in the document
       socket.to(`document:${documentId}`).emit('user-joined', {

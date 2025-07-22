@@ -9,9 +9,15 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
       - crdt-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
   # Backend Service
   backend:
@@ -26,10 +32,19 @@ services:
       - PORT=8080
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=${JWT_SECRET}
+      - CLIENT_URL=http://localhost
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-15m}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-7d}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-crdt-collab-editor-snapshots}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - FEATURE_SNAPSHOTS=${FEATURE_SNAPSHOTS:-true}
+      - FEATURE_METRICS=${FEATURE_METRICS:-true}
+      - FEATURE_COLLABORATION=${FEATURE_COLLABORATION:-true}
     depends_on:
       - redis
     networks:
@@ -38,6 +53,11 @@ services:
       - ../backend:/app
       - /app/node_modules
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Frontend Service
   frontend:
