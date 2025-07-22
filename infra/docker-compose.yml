@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # Redis Service
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine3.20
     container_name: crdt-redis
     ports:
       - "6379:6379"
@@ -78,7 +78,7 @@ services:
 
   # Nginx Load Balancer
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine3.20
     container_name: crdt-nginx
     ports:
       - "80:80"
@@ -96,7 +96,7 @@ services:
 
   # Prometheus Monitoring
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.56.1
     container_name: crdt-prometheus
     ports:
       - "9090:9090"
@@ -114,7 +114,7 @@ services:
 
   # Grafana Dashboard
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.4.0
     container_name: crdt-grafana
     ports:
       - "3001:3000"

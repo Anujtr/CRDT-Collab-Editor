@@ -10,10 +10,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "yjs": "^13.6.7"
+    "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "@types/node": "^20.4.5",
-    "typescript": "^5.1.6"
+    "@types/node": "^20.17.9",
+    "typescript": "^5.7.2"
   }
 }
