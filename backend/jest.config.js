@@ -9,12 +9,24 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
-    '!src/server.ts'
+    '!src/server.ts',
+    '!src/**/*.interface.ts',
+    '!src/**/*.enum.ts'
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  moduleNameMapping: {
-    '^@/(.*)$': '<rootDir>/src/$1'
+  coverageReporters: ['text', 'lcov', 'html', 'json'],
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70
+    }
   },
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts']
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  testTimeout: 15000,
+  maxWorkers: 1, // Run tests sequentially to avoid port conflicts
+  verbose: true,
+  detectOpenHandles: true,
+  forceExit: true
 };

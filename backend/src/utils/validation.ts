@@ -5,6 +5,7 @@ import { PASSWORD_CONFIG } from '../../../shared/src/constants/auth';
 export const validationSchemas = {
   register: Joi.object({
     username: Joi.string()
+      .trim()
       .alphanum()
       .min(3)
       .max(30)
@@ -17,6 +18,7 @@ export const validationSchemas = {
       }),
     
     email: Joi.string()
+      .trim()
       .email()
       .required()
       .messages({

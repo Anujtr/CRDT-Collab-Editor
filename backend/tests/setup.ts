@@ -5,7 +5,7 @@ dotenv.config({ path: '.env.test' });
 
 // Set test environment
 process.env.NODE_ENV = 'test';
-process.env.JWT_SECRET = 'test-secret';
+process.env.JWT_SECRET = 'test-jwt-secret-key-that-is-long-enough-for-security-validation-12345';
 process.env.REDIS_HOST = 'localhost';
 process.env.REDIS_PORT = '6379';
 
@@ -34,3 +34,12 @@ jest.mock('../src/config/database', () => ({
 
 // Global test timeout
 jest.setTimeout(10000);
+
+// Clean up intervals and timers after all tests
+afterAll(() => {
+  // Import and cleanup metrics service
+  const { metricsService } = require('../src/services/metricsService');
+  if (metricsService && metricsService.cleanup) {
+    metricsService.cleanup();
+  }
+});

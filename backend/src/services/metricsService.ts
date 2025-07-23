@@ -3,6 +3,7 @@ import logger from '../utils/logger';
 
 class MetricsService {
   private register: promClient.Registry;
+  private systemMetricsInterval?: NodeJS.Timeout;
 
   // HTTP Metrics
   public httpRequestsTotal!: promClient.Counter<string>;
@@ -43,7 +44,11 @@ class MetricsService {
 
     this.initializeMetrics();
     this.collectDefaultMetrics();
-    this.startSystemMetricsCollection();
+    
+    // Don't start system metrics collection in test environment
+    if (process.env.NODE_ENV !== 'test') {
+      this.startSystemMetricsCollection();
+    }
   }
 
   private initializeMetrics(): void {
@@ -172,7 +177,7 @@ class MetricsService {
 
   private startSystemMetricsCollection(): void {
     // Update system metrics every 30 seconds
-    setInterval(() => {
+    this.systemMetricsInterval = setInterval(() => {
       this.updateSystemMetrics();
     }, 30000);
 
@@ -263,6 +268,13 @@ class MetricsService {
 
   public reset(): void {
     this.register.resetMetrics();
+  }
+
+  public cleanup(): void {
+    if (this.systemMetricsInterval) {
+      clearInterval(this.systemMetricsInterval);
+      this.systemMetricsInterval = undefined;
+    }
   }
 }
 

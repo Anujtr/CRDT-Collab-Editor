@@ -10,13 +10,19 @@ export class JWTUtils {
       userId: user.id,
       username: user.username,
       role: user.role,
-      permissions: user.permissions
+      permissions: user.permissions,
+      jti: `${user.id}-${Date.now()}-${Math.random()}`
     };
 
     return jwt.sign(payload, this.secret, {
       expiresIn: '24h',
       algorithm: 'HS256'
     });
+  }
+
+  // Alias for test compatibility
+  static generateAccessToken(user: User): string {
+    return this.generateToken(user);
   }
 
   static generateRefreshToken(user: User): string {

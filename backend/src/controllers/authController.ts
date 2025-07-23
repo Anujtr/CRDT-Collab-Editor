@@ -35,9 +35,16 @@ export class AuthController {
         role: role || UserRole.USER
       });
 
-      // Generate JWT token
-      const token = JWTUtils.generateToken(user);
-      const authResponse = JWTUtils.createAuthResponse(user, token);
+      // Generate JWT tokens
+      const accessToken = JWTUtils.generateToken(user);
+      const refreshToken = JWTUtils.generateRefreshToken(user);
+      
+      const authResponse = {
+        ...JWTUtils.createAuthResponse(user, accessToken),
+        accessToken,
+        refreshToken,
+        sessionId: `session-${user.id}-${Date.now()}`
+      };
 
       res.status(201).json({
         success: true,
@@ -121,9 +128,16 @@ export class AuthController {
         return;
       }
 
-      // Generate JWT token
-      const token = JWTUtils.generateToken(user);
-      const authResponse = JWTUtils.createAuthResponse(user, token);
+      // Generate JWT tokens
+      const accessToken = JWTUtils.generateToken(user);
+      const refreshToken = JWTUtils.generateRefreshToken(user);
+      
+      const authResponse = {
+        ...JWTUtils.createAuthResponse(user, accessToken),
+        accessToken,
+        refreshToken,
+        sessionId: `session-${user.id}-${Date.now()}`
+      };
 
       res.status(200).json({
         success: true,
@@ -237,14 +251,15 @@ export class AuthController {
       }
 
       // Generate new tokens
-      const newToken = JWTUtils.generateToken(user);
+      const newAccessToken = JWTUtils.generateToken(user);
       const newRefreshToken = JWTUtils.generateRefreshToken(user);
-      const authResponse = JWTUtils.createAuthResponse(user, newToken);
+      const authResponse = JWTUtils.createAuthResponse(user, newAccessToken);
 
       res.status(200).json({
         success: true,
         data: {
           ...authResponse,
+          accessToken: newAccessToken,
           refreshToken: newRefreshToken
         },
         timestamp: new Date()

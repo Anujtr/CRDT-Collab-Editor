@@ -8,12 +8,53 @@ export class UserModel {
   private static usersByUsername: Map<string, User> = new Map();
   private static usersByEmail: Map<string, User> = new Map();
 
+  private static validateUsername(username: string): void {
+    if (!username || username.trim().length < 3) {
+      throw new Error('Username must be at least 3 characters long');
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+      throw new Error('Username can only contain letters, numbers, underscores, periods, and hyphens');
+    }
+    // Username cannot be only numbers
+    if (/^\d+$/.test(username)) {
+      throw new Error('Username cannot be only numbers');
+    }
+    // Username must start with a letter
+    if (!/^[a-zA-Z]/.test(username)) {
+      throw new Error('Username must start with a letter');
+    }
+  }
+
+  private static validateEmail(email: string): void {
+    if (!email || !email.includes('@')) {
+      throw new Error('Invalid email format');
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error('Invalid email format');
+    }
+  }
+
+  private static validatePasswordStrength(password: string): void {
+    if (!password || password.length < 8) {
+      throw new Error('Password must be at least 8 characters long');
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      throw new Error('Password must contain at least one uppercase letter, one lowercase letter, and one number');
+    }
+  }
+
   static async create(userData: {
     username: string;
     email: string;
     password: string;
     role?: UserRole;
   }): Promise<User> {
+    // Validate input data
+    this.validateUsername(userData.username);
+    this.validateEmail(userData.email);
+    this.validatePasswordStrength(userData.password);
+
     const existingByUsername = this.usersByUsername.get(userData.username);
     const existingByEmail = this.usersByEmail.get(userData.email);
 
@@ -60,7 +101,11 @@ export class UserModel {
   }
 
   static async findByUsernameOrEmail(identifier: string): Promise<User | null> {
-    return this.findByUsername(identifier) || this.findByEmail(identifier);
+    const userByUsername = await this.findByUsername(identifier);
+    if (userByUsername) {
+      return userByUsername;
+    }
+    return await this.findByEmail(identifier);
   }
 
   static async updateById(id: string, updates: Partial<User>): Promise<User | null> {
@@ -131,6 +176,17 @@ export class UserModel {
     return sanitized;
   }
 
+  // Test utility methods
+  static listAll(): User[] {
+    return Array.from(this.users.values());
+  }
+
+  static clear(): void {
+    this.users.clear();
+    this.usersByUsername.clear();
+    this.usersByEmail.clear();
+  }
+
   // Initialize with default admin user
   static async initialize(): Promise<void> {
     const adminExists = await this.findByUsername('admin');
@@ -138,7 +194,7 @@ export class UserModel {
       await this.create({
         username: 'admin',
         email: 'admin@example.com',
-        password: 'admin123',
+        password: 'AdminPassword123',
         role: UserRole.ADMIN
       });
     }
