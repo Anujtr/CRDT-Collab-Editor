@@ -114,13 +114,7 @@ describe('WebSocket Integration Tests', () => {
         role: UserRole.EDITOR
       });
 
-      validToken = JWTUtils.generateAccessToken({
-        id: testUser.id,
-        username: testUser.username,
-        email: testUser.email,
-        role: testUser.role,
-        permissions: testUser.permissions
-      });
+      validToken = JWTUtils.generateAccessToken(testUser);
     });
 
     it('should authenticate user with valid token', (done) => {
@@ -211,17 +205,11 @@ describe('WebSocket Integration Tests', () => {
         role: UserRole.EDITOR
       });
 
-      validToken = JWTUtils.generateAccessToken({
-        id: testUser.id,
-        username: testUser.username,
-        email: testUser.email,
-        role: testUser.role,
-        permissions: testUser.permissions
-      });
+      validToken = JWTUtils.generateAccessToken(testUser);
 
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
-      return new Promise((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         authenticatedSocket.on('connect', () => {
           authenticatedSocket.emit('authenticate', { token: validToken });
         });
@@ -333,17 +321,11 @@ describe('WebSocket Integration Tests', () => {
         role: UserRole.EDITOR
       });
 
-      validToken = JWTUtils.generateAccessToken({
-        id: testUser.id,
-        username: testUser.username,
-        email: testUser.email,
-        role: testUser.role,
-        permissions: testUser.permissions
-      });
+      validToken = JWTUtils.generateAccessToken(testUser);
 
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
-      return new Promise((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         authenticatedSocket.on('connect', () => {
           authenticatedSocket.emit('authenticate', { token: validToken });
         });
@@ -437,13 +419,7 @@ describe('WebSocket Integration Tests', () => {
         password: 'TestPassword123',
         role: UserRole.VIEWER
       }).then(readOnlyUser => {
-        const readOnlyToken = JWTUtils.generateAccessToken({
-          id: readOnlyUser.id,
-          username: readOnlyUser.username,
-          email: readOnlyUser.email,
-          role: readOnlyUser.role,
-          permissions: readOnlyUser.permissions
-        });
+        const readOnlyToken = JWTUtils.generateAccessToken(readOnlyUser);
 
         const readOnlySocket = Client(`http://localhost:${testPort}`);
         
@@ -498,17 +474,11 @@ describe('WebSocket Integration Tests', () => {
         role: UserRole.EDITOR
       });
 
-      validToken = JWTUtils.generateAccessToken({
-        id: testUser.id,
-        username: testUser.username,
-        email: testUser.email,
-        role: testUser.role,
-        permissions: testUser.permissions
-      });
+      validToken = JWTUtils.generateAccessToken(testUser);
 
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
-      return new Promise((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         authenticatedSocket.on('connect', () => {
           authenticatedSocket.emit('authenticate', { token: validToken });
         });
@@ -602,13 +572,7 @@ describe('WebSocket Integration Tests', () => {
         password: 'TestPassword123',
         role: UserRole.EDITOR
       }).then(user => {
-        const token = JWTUtils.generateAccessToken({
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-          permissions: user.permissions
-        });
+        const token = JWTUtils.generateAccessToken(user);
 
         const socket = Client(`http://localhost:${testPort}`);
         
@@ -653,13 +617,7 @@ describe('WebSocket Integration Tests', () => {
         role: UserRole.EDITOR
       });
 
-      validToken = JWTUtils.generateAccessToken({
-        id: testUser.id,
-        username: testUser.username,
-        email: testUser.email,
-        role: testUser.role,
-        permissions: testUser.permissions
-      });
+      validToken = JWTUtils.generateAccessToken(testUser);
     });
 
     it('should handle malformed messages gracefully', (done) => {

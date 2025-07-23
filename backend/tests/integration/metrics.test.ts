@@ -197,8 +197,8 @@ describe('Metrics and Monitoring Integration Tests', () => {
         .get('/api/metrics')
         .expect(200);
 
-      // Check label format
-      expect(response.text).toMatch(/http_requests_total\{method="GET",route="\/api\/health",status_code="200"\}/);
+      // Check label format (allow for additional labels)
+      expect(response.text).toMatch(/http_requests_total\{[^}]*method="GET"[^}]*route="\/api\/health"[^}]*status_code="200"[^}]*\}/);
       expect(response.text).toMatch(/method="POST"/);
       expect(response.text).toMatch(/status_code="400"/);
     });
@@ -257,20 +257,15 @@ describe('Metrics and Monitoring Integration Tests', () => {
     let adminToken: string;
 
     beforeEach(async () => {
+      const randomId = Math.random().toString(36).substring(7);
       adminUser = await UserModel.create({
-        username: 'admin',
-        email: 'admin@example.com',
-        password: 'password123',
+        username: `admin${randomId}`,
+        email: `admin${randomId}@example.com`,
+        password: 'TestPassword123!',
         role: UserRole.ADMIN
       });
 
-      adminToken = JWTUtils.generateAccessToken({
-        userId: adminUser.id,
-        username: adminUser.username,
-        email: adminUser.email,
-        role: adminUser.role,
-        permissions: adminUser.permissions
-      });
+      adminToken = JWTUtils.generateAccessToken(adminUser);
     });
 
     it('should provide connection statistics', async () => {
@@ -315,7 +310,16 @@ describe('Metrics and Monitoring Integration Tests', () => {
       ];
 
       for (const endpoint of endpoints) {
-        await request(app)[endpoint.method.toLowerCase()](endpoint.path);
+        const method = endpoint.method.toLowerCase();
+        if (method === 'get') {
+          await request(app).get(endpoint.path);
+        } else if (method === 'post') {
+          await request(app).post(endpoint.path);
+        } else if (method === 'put') {
+          await request(app).put(endpoint.path);
+        } else if (method === 'delete') {
+          await request(app).delete(endpoint.path);
+        }
       }
 
       // Check that all requests are tracked

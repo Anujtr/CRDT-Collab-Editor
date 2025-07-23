@@ -10,8 +10,16 @@ export const metricsMiddleware = (req: Request, res: Response, next: NextFunctio
     const duration = (Date.now() - startTime) / 1000; // Convert to seconds
     const statusCode = res.statusCode;
     
-    // Extract route pattern (remove params)
-    const route = req.route?.path || req.path;
+    // Extract route pattern with full path
+    let route = req.path;
+    
+    // If there's a route pattern, use it but preserve the mount path
+    if (req.route?.path && req.baseUrl) {
+      route = req.baseUrl + req.route.path;
+    } else if (req.route?.path) {
+      route = req.route.path;
+    }
+    
     const method = req.method;
     
     // Record HTTP metrics
