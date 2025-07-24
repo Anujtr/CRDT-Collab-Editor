@@ -140,15 +140,15 @@ export function Layout({ children }: LayoutProps) {
             <div className={cn(
               'flex items-center gap-2 px-3 py-1 rounded-full text-sm',
               {
-                'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300': connectionState.status === 'connected',
+                'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300': connectionState.status === 'connected' || connectionState.status === 'authenticated',
                 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300': connectionState.status === 'connecting',
                 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300': connectionState.status === 'disconnected' || connectionState.status === 'error',
               }
             )}>
-              {connectionState.status === 'connected' ? (
+              {connectionState.status === 'connected' || connectionState.status === 'authenticated' ? (
                 <>
                   <Wifi className="h-4 w-4" />
-                  <span>Connected</span>
+                  <span>{connectionState.status === 'authenticated' ? 'Online' : 'Connected'}</span>
                 </>
               ) : connectionState.status === 'connecting' ? (
                 <>

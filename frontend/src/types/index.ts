@@ -48,7 +48,7 @@ export interface UserPresence {
 }
 
 export interface ConnectionState {
-  status: 'connecting' | 'connected' | 'disconnected' | 'error';
+  status: 'connecting' | 'connected' | 'authenticated' | 'disconnected' | 'error';
   lastConnected?: number;
   retryCount: number;
   error?: string;
