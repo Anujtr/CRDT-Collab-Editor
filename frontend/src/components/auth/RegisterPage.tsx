@@ -134,6 +134,7 @@ export function RegisterPage() {
                       return true;
                     }
                   })}
+                  id="username"
                   type="text"
                   autoComplete="username"
                   className={cn(
@@ -169,6 +170,7 @@ export function RegisterPage() {
                       return true;
                     }
                   })}
+                  id="email"
                   type="email"
                   autoComplete="email"
                   className={cn(
@@ -214,6 +216,7 @@ export function RegisterPage() {
                       return true;
                     }
                   })}
+                  id="password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   className={cn(
@@ -315,6 +318,7 @@ export function RegisterPage() {
                       return true;
                     }
                   })}
+                  id="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
                   autoComplete="new-password"
                   className={cn(

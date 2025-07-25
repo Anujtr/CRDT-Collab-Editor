@@ -1,6 +1,8 @@
 import { renderHook, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { AuthProvider } from '../providers/AuthProvider';
+import { createMockUser } from '../test-utils/mockData';
 
 // Mock react-hot-toast
 jest.mock('react-hot-toast', () => ({
@@ -10,35 +12,55 @@ jest.mock('react-hot-toast', () => ({
   },
 }));
 
+// Mock auth service
+jest.mock('../services/auth/authService', () => ({
+  authService: {
+    login: jest.fn(),
+    register: jest.fn(),
+    logout: jest.fn(),
+    refreshToken: jest.fn(),
+    verifyToken: jest.fn(),
+  },
+}));
+
 // Mock fetch for auth API calls
 global.fetch = jest.fn();
 const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
+
+import { authService } from '../services/auth/authService';
+
+const mockAuthService = authService as jest.Mocked<typeof authService>;
 
 describe('Authentication Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    
+    // Default mock for verifyToken to return false for clean state
+    mockAuthService.verifyToken.mockResolvedValue(false);
   });
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <AuthProvider>{children}</AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>{children}</AuthProvider>
+    </MemoryRouter>
   );
 
   it('should handle complete authentication flow', async () => {
     // Mock successful login response
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        success: true,
-        data: {
-          user: { id: '1', username: 'testuser', email: 'test@example.com' },
-          token: 'mock-jwt-token'
-        }
-      })
-    } as Response);
+    mockAuthService.login.mockResolvedValueOnce({
+      user: createMockUser(),
+      token: 'mock-jwt-token',
+      expiresAt: new Date(Date.now() + 3600000).toISOString()
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Wait for initialization to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
 
     // Initially not authenticated
     expect(result.current.isAuthenticated).toBe(false);
@@ -54,19 +76,23 @@ describe('Authentication Integration', () => {
     expect(result.current.token).toBe('mock-jwt-token');
 
     // Should store token in localStorage
-    expect(localStorage.getItem('auth_token')).toBe('mock-jwt-token');
+    expect(localStorage.getItem('crdt-auth-token')).toBe('"mock-jwt-token"');
   });
 
-  it('should handle authentication persistence', () => {
+  it('should handle authentication persistence', async () => {
+    // Mock verifyToken to return true for existing token
+    mockAuthService.verifyToken.mockResolvedValueOnce(true);
+    
     // Simulate existing token in localStorage
-    localStorage.setItem('auth_token', 'existing-token');
-    localStorage.setItem('auth_user', JSON.stringify({
-      id: '1',
-      username: 'testuser',
-      email: 'test@example.com'
-    }));
+    localStorage.setItem('crdt-auth-token', '"existing-token"');
+    localStorage.setItem('crdt-user-data', JSON.stringify(createMockUser()));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Wait for initialization to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
 
     // Should restore authentication state
     expect(result.current.isAuthenticated).toBe(true);
@@ -75,15 +101,20 @@ describe('Authentication Integration', () => {
   });
 
   it('should handle logout properly', async () => {
+    // Mock initial authentication state
+    mockAuthService.verifyToken.mockResolvedValueOnce(true);
+    mockAuthService.logout.mockResolvedValueOnce(undefined);
+    
     // Set up authenticated state
-    localStorage.setItem('auth_token', 'test-token');
-    localStorage.setItem('auth_user', JSON.stringify({
-      id: '1',
-      username: 'testuser',
-      email: 'test@example.com'
-    }));
+    localStorage.setItem('crdt-auth-token', '"test-token"');
+    localStorage.setItem('crdt-user-data', JSON.stringify(createMockUser()));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Wait for initialization to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
 
     // Should be authenticated
     expect(result.current.isAuthenticated).toBe(true);
@@ -99,21 +130,20 @@ describe('Authentication Integration', () => {
     expect(result.current.token).toBe(null);
 
     // Should clear localStorage
-    expect(localStorage.getItem('auth_token')).toBe(null);
-    expect(localStorage.getItem('auth_user')).toBe(null);
+    expect(localStorage.getItem('crdt-auth-token')).toBe(null);
+    expect(localStorage.getItem('crdt-user-data')).toBe(null);
   });
 
   it('should handle auth errors gracefully', async () => {
     // Mock failed login response
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({
-        success: false,
-        error: 'Invalid credentials'
-      })
-    } as Response);
+    mockAuthService.login.mockRejectedValueOnce(new Error('Invalid credentials'));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Wait for initialization to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
 
     // Attempt login with invalid credentials
     await act(async () => {
@@ -132,9 +162,14 @@ describe('Authentication Integration', () => {
 
   it('should handle network errors', async () => {
     // Mock network error
-    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+    mockAuthService.login.mockRejectedValueOnce(new Error('Network error'));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Wait for initialization to complete
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
 
     // Attempt login with network error
     await act(async () => {

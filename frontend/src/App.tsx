@@ -8,7 +8,6 @@ import { LoginPage } from './components/auth/LoginPage';
 import { RegisterPage } from './components/auth/RegisterPage';
 import { DashboardPage } from './components/common/DashboardPage';
 import { EditorPage } from './components/editor/EditorPage';
-import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './styles/globals.css';
 

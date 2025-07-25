@@ -131,6 +131,7 @@ export function Layout({ children }: LayoutProps) {
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Toggle menu"
           >
             <Menu className="h-5 w-5" />
           </button>
