@@ -1,5 +1,4 @@
 import { Editor, Transforms, Range, Point, Element as SlateElement } from 'slate';
-import { ReactEditor } from 'slate-react';
 
 // Plugin to handle Enter key behavior in lists
 export const withLists = (editor: Editor) => {
@@ -9,12 +8,12 @@ export const withLists = (editor: Editor) => {
     const { selection } = editor;
 
     if (selection && Range.isCollapsed(selection)) {
-      const [match] = Editor.nodes(editor, {
+      const [match] = Array.from(Editor.nodes(editor, {
         match: n =>
           !Editor.isEditor(n) &&
           SlateElement.isElement(n) &&
           n.type === 'list-item',
-      });
+      }));
 
       if (match) {
         const [, path] = match;
@@ -44,12 +43,12 @@ export const withLists = (editor: Editor) => {
     const { selection } = editor;
 
     if (selection && Range.isCollapsed(selection)) {
-      const [match] = Editor.nodes(editor, {
+      const [match] = Array.from(Editor.nodes(editor, {
         match: n =>
           !Editor.isEditor(n) &&
           SlateElement.isElement(n) &&
           n.type === 'list-item',
-      });
+      }));
 
       if (match) {
         const [, path] = match;
@@ -78,7 +77,7 @@ export const withLists = (editor: Editor) => {
 
 // Plugin to handle auto-formatting (e.g., markdown shortcuts)
 export const withAutoFormat = (editor: Editor) => {
-  const { insertText, insertBreak } = editor;
+  const { insertText } = editor;
 
   editor.insertText = (text) => {
     const { selection } = editor;
@@ -153,7 +152,7 @@ export const withPaste = (editor: Editor) => {
       if (lines.length > 1) {
         lines.forEach((line, index) => {
           if (index > 0) {
-            Transforms.insertBreak(editor);
+            editor.insertBreak();
           }
           Transforms.insertText(editor, line);
         });
@@ -176,7 +175,7 @@ export const withNormalization = (editor: Editor) => {
 
     // Ensure lists contain only list-items
     if (SlateElement.isElement(node) && ['bulleted-list', 'numbered-list'].includes(node.type)) {
-      for (const [child, childPath] of Editor.nodes(editor, { at: path })) {
+      for (const [child, childPath] of Array.from(Editor.nodes(editor, { at: path }))) {
         if (SlateElement.isElement(child) && child.type !== 'list-item') {
           Transforms.setNodes(editor, { type: 'list-item' }, { at: childPath });
           return;
@@ -210,8 +209,6 @@ export const withDragDrop = (editor: Editor) => {
 // Plugin to prevent certain operations on read-only editors
 export const withReadOnly = (editor: Editor, readOnly: boolean) => {
   if (!readOnly) return editor;
-
-  const { insertText, insertBreak, deleteBackward, deleteForward, insertData } = editor;
 
   editor.insertText = () => {};
   editor.insertBreak = () => {};

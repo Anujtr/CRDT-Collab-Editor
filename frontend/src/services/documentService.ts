@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '../utils/constants';
 import { storage } from '../utils';
-import { Document, DocumentMetadata, CreateDocumentFormData } from '../types';
+import { DocumentMetadata, CreateDocumentFormData } from '../types';
 
 interface DocumentListResponse {
   documents: DocumentMetadata[];

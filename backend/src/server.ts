@@ -144,8 +144,16 @@ class Server {
   }
 
   private async connectToDatabase(): Promise<void> {
-    // Skip Redis connection for now to avoid connection spam
-    logger.info('Database connections skipped - running in standalone mode for testing');
+    try {
+      await RedisClient.connect();
+      logger.info('Redis connection established successfully');
+    } catch (error) {
+      logger.error('Failed to connect to Redis', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      // Continue in standalone mode for development
+      logger.warn('Running in standalone mode - Redis features disabled');
+    }
   }
 
   private async initializeData(): Promise<void> {

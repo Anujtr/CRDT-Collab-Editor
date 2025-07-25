@@ -7,7 +7,6 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 
 function EditorContent() {
   const {
-    document,
     isLoading,
     error,
     editor,

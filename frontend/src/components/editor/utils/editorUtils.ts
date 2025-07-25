@@ -121,7 +121,7 @@ export const EditorUtils = {
   },
 
   insertBreak: (editor: Editor): void => {
-    Transforms.insertBreak(editor);
+    editor.insertBreak();
   },
 
   // Content utilities
@@ -129,6 +129,7 @@ export const EditorUtils = {
     const { children } = editor;
     return (
       children.length === 1 &&
+      SlateElement.isElement(children[0]) &&
       children[0].type === 'paragraph' &&
       children[0].children.length === 1 &&
       Text.isText(children[0].children[0]) &&

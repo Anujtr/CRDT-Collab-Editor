@@ -127,7 +127,7 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
     } finally {
       setIsLoading(false);
     }
-  }, [options.documentId, options.onStatusChange, options.onSync, editor]);
+  }, [options, editor]);
 
   // Disconnect from collaborative editing
   const disconnect = useCallback(async () => {

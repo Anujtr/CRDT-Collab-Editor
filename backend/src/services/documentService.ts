@@ -372,6 +372,17 @@ class DocumentService {
     totalPages: number;
   }> {
     try {
+      // Check if Redis is connected
+      if (!RedisClient.isClientConnected()) {
+        logger.warn('Redis not connected - returning empty document list for development');
+        return {
+          documents: [],
+          total: 0,
+          page: 1,
+          totalPages: 0
+        };
+      }
+
       // Get all document keys from Redis
       const client = RedisClient.getClient();
       const keys = await client.keys('document:metadata:*');

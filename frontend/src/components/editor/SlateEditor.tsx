@@ -4,7 +4,6 @@ import {
   Descendant, 
   Editor, 
   Transforms, 
-  Text, 
   Element as SlateElement 
 } from 'slate';
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';

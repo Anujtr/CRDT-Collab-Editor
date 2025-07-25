@@ -210,7 +210,7 @@ export function RegisterPage() {
                       if (!/(?=.*\d)/.test(value)) {
                         return 'Password must contain at least one number';
                       }
-                      if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\?])/.test(value)) {
+                      if (!/(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>?])/.test(value)) {
                         return 'Password must contain at least one special character';
                       }
                       return true;
@@ -284,7 +284,7 @@ export function RegisterPage() {
                       <span className="text-gray-600 dark:text-gray-400">Number</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\?])/.test(watchedPassword) ? (
+                      {/(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>?])/.test(watchedPassword) ? (
                         <Check className="h-3 w-3 text-green-500" />
                       ) : (
                         <X className="h-3 w-3 text-gray-400" />

@@ -1,6 +1,5 @@
 import * as Y from 'yjs';
 import { Editor, Transforms, Operation, Path, Node, Text, Element as SlateElement } from 'slate';
-import { ReactEditor } from 'slate-react';
 
 // Yjs to Slate operations conversion
 export class SlateYjsBinding {
@@ -163,7 +162,6 @@ export class SlateYjsBinding {
           // Remove the paragraph break
           const offset = this.pathToOffset(operation.path);
           // Find the position where nodes were merged and remove separator
-          const prevText = this.nodeToText(operation.properties);
           this.yText.delete(offset - 1, 1); // Remove the separator
         }
         break;

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useCallback, useState, useEffect } from 'react';
 import { Descendant, Editor } from 'slate';
 import { useParams } from 'react-router-dom';
-import { Document, EditorState } from '../../types';
+import { Document } from '../../types';
 import { useCollaborativeEditor } from '../../hooks/useCollaborativeEditor';
 import { API_BASE_URL } from '../../utils/constants';
 import { storage } from '../../utils';
@@ -56,12 +56,6 @@ interface EditorProviderProps {
   autoSaveInterval?: number; // in milliseconds
 }
 
-const defaultEditorValue: Descendant[] = [
-  {
-    type: 'paragraph',
-    children: [{ text: '' }],
-  },
-];
 
 export function EditorProvider({ 
   children, 
@@ -225,8 +219,8 @@ export function EditorProvider({
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    window.document.addEventListener('keydown', handleKeyDown);
+    return () => window.document.removeEventListener('keydown', handleKeyDown);
   }, [saveDocument]);
 
   // Warn about unsaved changes before leaving

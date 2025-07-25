@@ -125,7 +125,7 @@ export function isValidPassword(password: string): boolean {
     /[a-z]/.test(password) &&
     /[A-Z]/.test(password) &&
     /\d/.test(password) &&
-    /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\?]/.test(password)
+    /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>?]/.test(password)
   );
 }
 
@@ -144,7 +144,7 @@ export function getPasswordStrength(password: string): {
   if (/[a-z]/.test(password)) score++;
   if (/[A-Z]/.test(password)) score++;
   if (/\d/.test(password)) score++;
-  if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\?]/.test(password)) score++;
+  if (/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>?]/.test(password)) score++;
 
   if (score <= 2) {
     return { score, label: 'Weak', color: 'text-red-500' };
