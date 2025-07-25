@@ -9,9 +9,45 @@ import { ConnectionManager } from '../../src/websocket/connectionManager';
 // Mock Redis for testing
 jest.mock('../../src/config/database', () => ({
   RedisClient: {
+    // Connection management
+    connect: jest.fn(),
+    disconnect: jest.fn(),
     isClientConnected: () => false,
+    healthCheck: jest.fn().mockResolvedValue(true),
+    
+    // Client getters
+    getClient: jest.fn(() => ({
+      set: jest.fn(),
+      get: jest.fn(),
+      del: jest.fn(),
+      keys: jest.fn().mockResolvedValue([])
+    })),
+    getPublisher: jest.fn(() => ({
+      publish: jest.fn()
+    })),
+    getSubscriber: jest.fn(() => ({
+      subscribe: jest.fn(),
+      on: jest.fn(),
+      unsubscribe: jest.fn()
+    })),
+    
+    // Cache methods
+    setCache: jest.fn(),
+    getCache: jest.fn(),
+    deleteCache: jest.fn(),
+    
+    // Document-specific methods
     publishDocumentUpdate: jest.fn(),
-    subscribeToDocument: jest.fn()
+    subscribeToDocument: jest.fn(),
+    unsubscribeFromDocument: jest.fn(),
+    
+    // Session methods
+    setSession: jest.fn(),
+    getSession: jest.fn(),
+    deleteSession: jest.fn(),
+    
+    // Rate limiting
+    incrementRateLimit: jest.fn().mockResolvedValue({ count: 0, reset: Date.now() + 60000, exceeded: false })
   }
 }));
 
@@ -282,6 +318,7 @@ describe('WebSocket Integration Tests', () => {
     it('should handle user presence in document', (done) => {
       const documentId = 'doc-presence';
       let secondSocket: any = null;
+      let testCompleted = false;
       
       // Cleanup function
       const cleanup = () => {
@@ -290,8 +327,36 @@ describe('WebSocket Integration Tests', () => {
         }
       };
       
+      // Timeout protection - fail test if it takes too long
+      const timeout = setTimeout(() => {
+        if (!testCompleted) {
+          testCompleted = true;
+          cleanup();
+          done(new Error('Test timeout: user presence test took too long'));
+        }
+      }, 10000); // 10 second timeout
+      
+      // Wrapper to ensure done is only called once
+      const finishTest = (error?: any) => {
+        if (!testCompleted) {
+          testCompleted = true;
+          clearTimeout(timeout);
+          cleanup();
+          if (error) {
+            done(error);
+          } else {
+            done();
+          }
+        }
+      };
+      
       // Create second client
       secondSocket = Client(`http://localhost:${testPort}`);
+      
+      // Handle connection errors for second socket
+      secondSocket.on('connect_error', (error: any) => {
+        finishTest(new Error(`Second socket connection failed: ${error.message}`));
+      });
       
       secondSocket.on('connect', () => {
         secondSocket.emit('authenticate', { token: validToken });
@@ -300,6 +365,11 @@ describe('WebSocket Integration Tests', () => {
       secondSocket.on('authenticated', () => {
         // First user joins
         authenticatedSocket.emit('join-document', { documentId });
+      });
+
+      // Handle authentication failure for second socket
+      secondSocket.on('auth-error', (error: any) => {
+        finishTest(new Error(`Second socket authentication failed: ${error.message}`));
       });
 
       authenticatedSocket.on('document-joined', () => {
@@ -315,18 +385,26 @@ describe('WebSocket Integration Tests', () => {
             role: testUser.role
           });
           
-          cleanup();
-          done();
+          finishTest();
         } catch (error) {
-          cleanup();
-          done(error);
+          finishTest(error);
         }
       });
 
-      // Add error handler and cleanup on error
-      secondSocket.on('error', () => {
-        cleanup();
-        done();
+      // Add comprehensive error handling
+      secondSocket.on('error', (error: any) => {
+        finishTest(new Error(`Second socket error: ${error.message || 'Unknown error'}`));
+      });
+      
+      authenticatedSocket.on('error', (error: any) => {
+        finishTest(new Error(`Main socket error: ${error.message || 'Unknown error'}`));
+      });
+      
+      // Handle disconnection events
+      secondSocket.on('disconnect', (reason: string) => {
+        if (!testCompleted) {
+          finishTest(new Error(`Second socket disconnected unexpectedly: ${reason}`));
+        }
       });
     });
   });

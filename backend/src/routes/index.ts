@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth';
+import documentRoutes from './documents';
 import { metricsService } from '../services/metricsService';
 import { RedisClient } from '../config/database';
 import { authenticateToken, requireRole } from '../middleware/auth';
@@ -99,6 +100,9 @@ router.get('/connections', authenticateToken, requireRole(UserRole.ADMIN), async
 // Authentication routes
 router.use('/auth', authRoutes);
 
+// Document routes
+router.use('/documents', documentRoutes);
+
 // API documentation endpoint
 router.get('/', (_req, res) => {
   res.status(200).json({
@@ -113,6 +117,16 @@ router.get('/', (_req, res) => {
           'GET /api/auth/me': 'Get current user info',
           'POST /api/auth/refresh': 'Refresh access token',
           'POST /api/auth/logout': 'Logout user'
+        },
+        documents: {
+          'POST /api/documents': 'Create a new document',
+          'GET /api/documents': 'List user documents',
+          'GET /api/documents/:id': 'Get document by ID',
+          'PUT /api/documents/:id': 'Update document metadata',
+          'DELETE /api/documents/:id': 'Delete document',
+          'POST /api/documents/:id/collaborators': 'Add collaborator',
+          'DELETE /api/documents/:id/collaborators/:userId': 'Remove collaborator',
+          'GET /api/documents/stats': 'Document statistics (admin only)'
         },
         system: {
           'GET /api/health': 'Health check endpoint',

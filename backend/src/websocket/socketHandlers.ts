@@ -5,6 +5,7 @@ import { AuthenticatedSocket, ConnectionManager } from './connectionManager';
 import { Permission } from '../../../shared/src/types/auth';
 import { RedisClient } from '../config/database';
 import { metricsService } from '../services/metricsService';
+import { documentService } from '../services/documentService';
 import logger from '../utils/logger';
 
 export class SocketHandlers {
@@ -12,6 +13,13 @@ export class SocketHandlers {
 
   constructor(io: Server) {
     this.io = io;
+    this.setupDocumentUpdateBroadcasting();
+  }
+
+  private setupDocumentUpdateBroadcasting(): void {
+    // The document service already handles Redis pub/sub for broadcasting updates
+    // We'll hook into that system by subscribing to specific documents when users join
+    // This is handled in the handleJoinDocument method via subscribeToDocumentUpdates
   }
 
   setupHandlers(): void {
@@ -175,11 +183,12 @@ export class SocketHandlers {
         return;
       }
 
-      // Check permissions
-      if (!ConnectionManager.hasPermissionForDocument(connection, documentId, Permission.DOCUMENT_READ)) {
+      // Check permissions using document service
+      const hasReadAccess = await documentService.hasReadAccess(documentId, socket.user.userId);
+      if (!hasReadAccess) {
         socket.emit('error', { 
-          message: 'Insufficient permissions', 
-          code: 'INSUFFICIENT_PERMISSIONS' 
+          message: 'Document not found or access denied', 
+          code: 'ACCESS_DENIED' 
         });
         return;
       }
@@ -206,10 +215,18 @@ export class SocketHandlers {
       // Update collaborator metrics
       metricsService.setCollaboratorCount(documentId, users.length);
 
-      // Notify user of successful join
+      // Get document state and metadata
+      const documentState = await documentService.getDocumentState(documentId);
+      const metadata = await documentService.getDocumentMetadata(documentId);
+      const hasWriteAccess = await documentService.hasWriteAccess(documentId, socket.user.userId);
+
+      // Notify user of successful join with document data
       socket.emit('document-joined', {
         documentId,
-        users: users.filter(u => u.userId !== socket.user!.userId) // Exclude self
+        users: users.filter(u => u.userId !== socket.user!.userId), // Exclude self
+        documentState: documentState ? Array.from(documentState) : null,
+        metadata,
+        hasWriteAccess
       });
       
       metricsService.recordWebSocketMessage('document-joined', 'out');
@@ -221,8 +238,8 @@ export class SocketHandlers {
         role: socket.user.role
       });
 
-      // Subscribe to Redis pub/sub for this document
-      await this.subscribeToDocumentUpdates(documentId);
+      // Subscribe to document updates from the document service
+      this.subscribeToDocumentUpdates(documentId);
 
       logger.info('User joined document', {
         socketId: socket.id,
@@ -300,9 +317,8 @@ export class SocketHandlers {
       }
 
       const { documentId, update } = data;
-      const connection = ConnectionManager.getConnection(socket.id);
 
-      if (!connection || !documentId || !update) {
+      if (!documentId || !update) {
         socket.emit('error', { 
           message: 'Invalid update data', 
           code: 'INVALID_UPDATE_DATA' 
@@ -310,40 +326,23 @@ export class SocketHandlers {
         return;
       }
 
-      // Check write permissions
-      if (!ConnectionManager.hasPermissionForDocument(connection, documentId, Permission.DOCUMENT_WRITE)) {
+      // Convert update to Uint8Array if it's an array
+      const updateBytes = Array.isArray(update) ? new Uint8Array(update) : update;
+
+      // Apply update using document service
+      const success = await documentService.applyUpdate(documentId, socket.user.userId, updateBytes);
+
+      if (!success) {
         socket.emit('error', { 
-          message: 'Insufficient permissions for writing', 
-          code: 'INSUFFICIENT_PERMISSIONS' 
+          message: 'Failed to apply document update', 
+          code: 'UPDATE_FAILED' 
         });
         return;
       }
 
-      // Broadcast update to other users in the document (excluding sender)
-      socket.to(`document:${documentId}`).emit('document-update', {
-        documentId,
-        update,
-        userId: socket.user.userId,
-        username: socket.user.username,
-        timestamp: Date.now()
-      });
-
       // Send acknowledgment back to the sender
       socket.emit('document-update-success', {
         documentId,
-        update,
-        userId: socket.user.userId,
-        username: socket.user.username,
-        timestamp: Date.now()
-      });
-
-
-      // Publish to Redis for other server instances
-      await RedisClient.publishDocumentUpdate(documentId, {
-        update,
-        userId: socket.user.userId,
-        username: socket.user.username,
-        socketId: socket.id, // To avoid echoing back to sender
         timestamp: Date.now()
       });
 
@@ -351,7 +350,7 @@ export class SocketHandlers {
         socketId: socket.id,
         userId: socket.user.userId,
         documentId,
-        updateSize: JSON.stringify(update).length
+        updateSize: updateBytes.length
       });
 
     } catch (error) {
@@ -422,20 +421,24 @@ export class SocketHandlers {
     ConnectionManager.removeConnection(socket.id);
   }
 
-  private async subscribeToDocumentUpdates(documentId: string): Promise<void> {
+  private subscribeToDocumentUpdates(documentId: string): void {
     try {
-      if (!RedisClient.isClientConnected()) {
-        return;
-      }
+      // Subscribe to updates from the document service
+      documentService.onDocumentUpdate(documentId, (update) => {
+        // Broadcast the update to all clients in the document's room
+        this.io.to(`document:${documentId}`).emit('document-update', {
+          documentId: update.documentId,
+          update: Array.from(update.update), // Convert Uint8Array to regular array for JSON
+          userId: update.userId,
+          timestamp: update.timestamp
+        });
 
-      await RedisClient.subscribeToDocument(documentId, (data) => {
-        // Broadcast Redis updates to all connected clients except the sender
-        this.io.to(`document:${documentId}`).except(data.socketId).emit('document-update', {
-          documentId,
-          update: data.update,
-          userId: data.userId,
-          username: data.username,
-          timestamp: data.timestamp
+        metricsService.recordWebSocketMessage('document-update', 'out');
+        
+        logger.debug('Broadcasted document update via WebSocket', {
+          documentId: update.documentId,
+          userId: update.userId,
+          updateSize: update.update.length
         });
       });
 

@@ -258,6 +258,27 @@ class MetricsService {
     this.documentsTotal.set(count);
   }
 
+  public incrementDocumentOperation(operation: string, documentId: string): void {
+    this.documentOperationsTotal.inc({ operation, document_id: documentId });
+  }
+
+  public incrementDocumentCreated(): void {
+    this.incrementDocumentOperation('create', 'unknown');
+  }
+
+  public incrementDocumentUpdate(): void {
+    this.incrementDocumentOperation('update', 'unknown');
+  }
+
+  public incrementDocumentDeleted(): void {
+    this.incrementDocumentOperation('delete', 'unknown');
+  }
+
+  public getDocumentUpdateCount(): number {
+    // This is a simplified approach - in production you'd want more sophisticated tracking
+    return 0; // Placeholder
+  }
+
   public getMetrics(): Promise<string> {
     return this.register.metrics();
   }

@@ -87,6 +87,14 @@ export const sanitizeInput = (input: string): string => {
   return input.trim().toLowerCase();
 };
 
+export const validateInput = (schema: Joi.ObjectSchema, data: any) => {
+  const { error, value } = schema.validate(data);
+  if (error) {
+    throw new Error('Validation error');
+  }
+  return value;
+};
+
 export const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
