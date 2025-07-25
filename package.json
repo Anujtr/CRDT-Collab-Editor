@@ -36,6 +36,9 @@
   "author": "Anuj Tripathi",
   "license": "MIT",
   "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "babel-jest": "^30.0.5",
     "concurrently": "^7.6.0"
   },
   "workspaces": [

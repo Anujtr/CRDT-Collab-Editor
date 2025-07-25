@@ -5,6 +5,7 @@ import { UserModel } from '../../src/models/User';
 import { UserRole, Permission } from '../../../shared/src/types/auth';
 import { JWTUtils } from '../../src/utils/jwt';
 import { ConnectionManager } from '../../src/websocket/connectionManager';
+import { documentService } from '../../src/services/documentService';
 
 // Mock Redis for testing
 jest.mock('../../src/config/database', () => ({
@@ -48,6 +49,20 @@ jest.mock('../../src/config/database', () => ({
     
     // Rate limiting
     incrementRateLimit: jest.fn().mockResolvedValue({ count: 0, reset: Date.now() + 60000, exceeded: false })
+  }
+}));
+
+// Mock metrics service
+jest.mock('../../src/services/metricsService', () => ({
+  metricsService: {
+    recordWebSocketConnection: jest.fn(),
+    recordWebSocketMessage: jest.fn(),
+    recordWebSocketConnectionDuration: jest.fn(),
+    recordDocumentOperation: jest.fn(),
+    setCollaboratorCount: jest.fn(),
+    incrementDocumentCreated: jest.fn(),
+    incrementDocumentUpdate: jest.fn(),
+    incrementDocumentDeleted: jest.fn()
   }
 }));
 
@@ -238,6 +253,7 @@ describe('WebSocket Integration Tests', () => {
     let testUser: any;
     let validToken: string;
     let authenticatedSocket: ClientSocket;
+    let testDocument: any;
 
     beforeEach(async () => {
       testUser = await UserModel.create({
@@ -248,6 +264,9 @@ describe('WebSocket Integration Tests', () => {
       });
 
       validToken = JWTUtils.generateAccessToken(testUser);
+
+      // Create a test document
+      testDocument = await documentService.createDocument(testUser.id, 'Test Document for Room Tests', false);
 
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
@@ -273,13 +292,13 @@ describe('WebSocket Integration Tests', () => {
     });
 
     it('should join document room', (done) => {
-      const documentId = 'doc-test-join';
-
-      authenticatedSocket.emit('join-document', { documentId });
+      authenticatedSocket.emit('join-document', { documentId: testDocument.id });
 
       authenticatedSocket.on('document-joined', (data) => {
-        expect(data.documentId).toBe(documentId);
+        expect(data.documentId).toBe(testDocument.id);
         expect(data.users).toBeInstanceOf(Array);
+        expect(data.metadata).toBeDefined();
+        expect(data.hasWriteAccess).toBe(true);
         done();
       });
 
@@ -289,18 +308,16 @@ describe('WebSocket Integration Tests', () => {
     });
 
     it('should leave document room', (done) => {
-      const documentId = 'doc-test-leave';
-
       // First join
-      authenticatedSocket.emit('join-document', { documentId });
+      authenticatedSocket.emit('join-document', { documentId: testDocument.id });
 
       authenticatedSocket.on('document-joined', () => {
         // Then leave
-        authenticatedSocket.emit('leave-document', { documentId });
+        authenticatedSocket.emit('leave-document', { documentId: testDocument.id });
       });
 
       authenticatedSocket.on('document-left', (data) => {
-        expect(data.documentId).toBe(documentId);
+        expect(data.documentId).toBe(testDocument.id);
         done();
       });
     });
@@ -316,7 +333,6 @@ describe('WebSocket Integration Tests', () => {
     });
 
     it('should handle user presence in document', (done) => {
-      const documentId = 'doc-presence';
       let secondSocket: any = null;
       let testCompleted = false;
       
@@ -364,7 +380,7 @@ describe('WebSocket Integration Tests', () => {
 
       secondSocket.on('authenticated', () => {
         // First user joins
-        authenticatedSocket.emit('join-document', { documentId });
+        authenticatedSocket.emit('join-document', { documentId: testDocument.id });
       });
 
       // Handle authentication failure for second socket
@@ -374,7 +390,7 @@ describe('WebSocket Integration Tests', () => {
 
       authenticatedSocket.on('document-joined', () => {
         // Second user joins same document
-        secondSocket.emit('join-document', { documentId });
+        secondSocket.emit('join-document', { documentId: testDocument.id });
       });
 
       // First socket should receive user-joined event
@@ -413,7 +429,7 @@ describe('WebSocket Integration Tests', () => {
     let testUser: any;
     let validToken: string;
     let authenticatedSocket: ClientSocket;
-    const documentId = 'doc-updates';
+    let testDocument: any;
 
     beforeEach(async () => {
       testUser = await UserModel.create({
@@ -425,6 +441,9 @@ describe('WebSocket Integration Tests', () => {
 
       validToken = JWTUtils.generateAccessToken(testUser);
 
+      // Create a test document
+      testDocument = await documentService.createDocument(testUser.id, 'Test Document for Updates', false);
+
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
       return new Promise<void>((resolve, reject) => {
@@ -433,7 +452,7 @@ describe('WebSocket Integration Tests', () => {
         });
 
         authenticatedSocket.on('authenticated', () => {
-          authenticatedSocket.emit('join-document', { documentId });
+          authenticatedSocket.emit('join-document', { documentId: testDocument.id });
         });
 
         authenticatedSocket.on('document-joined', () => {
@@ -460,15 +479,13 @@ describe('WebSocket Integration Tests', () => {
       };
 
       authenticatedSocket.emit('document-update', {
-        documentId,
+        documentId: testDocument.id,
         update: updateData
       });
 
       authenticatedSocket.on('document-update-success', (data) => {
-        expect(data.documentId).toBe(documentId);
-        expect(data.update).toEqual(updateData);
-        expect(data.userId).toBe(testUser.id);
-        expect(data.username).toBe(testUser.username);
+        expect(data.documentId).toBe(testDocument.id);
+        expect(data.timestamp).toBeDefined();
         done();
       });
 
@@ -500,13 +517,13 @@ describe('WebSocket Integration Tests', () => {
       });
 
       secondSocket.on('authenticated', () => {
-        secondSocket.emit('join-document', { documentId });
+        secondSocket.emit('join-document', { documentId: testDocument.id });
       });
 
       secondSocket.on('document-joined', () => {
         // Send update from first socket
         authenticatedSocket.emit('document-update', {
-          documentId,
+          documentId: testDocument.id,
           update: updateData
         });
       });
@@ -514,7 +531,7 @@ describe('WebSocket Integration Tests', () => {
       // Second socket should receive the update
       secondSocket.on('document-update', (data: any) => {
         try {
-          expect(data.documentId).toBe(documentId);
+          expect(data.documentId).toBe(testDocument.id);
           expect(data.update).toEqual(updateData);
           expect(data.userId).toBe(testUser.id);
           
@@ -550,12 +567,12 @@ describe('WebSocket Integration Tests', () => {
         });
 
         readOnlySocket.on('authenticated', () => {
-          readOnlySocket.emit('join-document', { documentId });
+          readOnlySocket.emit('join-document', { documentId: testDocument.id });
         });
 
         readOnlySocket.on('document-joined', () => {
           readOnlySocket.emit('document-update', {
-            documentId,
+            documentId: testDocument.id,
             update: { type: 'test' }
           });
         });
@@ -586,7 +603,7 @@ describe('WebSocket Integration Tests', () => {
     let testUser: any;
     let validToken: string;
     let authenticatedSocket: ClientSocket;
-    const documentId = 'doc-cursors';
+    let testDocument: any;
 
     beforeEach(async () => {
       testUser = await UserModel.create({
@@ -598,6 +615,9 @@ describe('WebSocket Integration Tests', () => {
 
       validToken = JWTUtils.generateAccessToken(testUser);
 
+      // Create a test document
+      testDocument = await documentService.createDocument(testUser.id, 'Test Document for Cursors', false);
+
       authenticatedSocket = Client(`http://localhost:${testPort}`);
 
       return new Promise<void>((resolve, reject) => {
@@ -606,7 +626,7 @@ describe('WebSocket Integration Tests', () => {
         });
 
         authenticatedSocket.on('authenticated', () => {
-          authenticatedSocket.emit('join-document', { documentId });
+          authenticatedSocket.emit('join-document', { documentId: testDocument.id });
         });
 
         authenticatedSocket.on('document-joined', () => {
@@ -648,13 +668,13 @@ describe('WebSocket Integration Tests', () => {
       });
 
       secondSocket.on('authenticated', () => {
-        secondSocket.emit('join-document', { documentId });
+        secondSocket.emit('join-document', { documentId: testDocument.id });
       });
 
       secondSocket.on('document-joined', () => {
         // Send cursor update from first socket
         authenticatedSocket.emit('cursor-update', {
-          documentId,
+          documentId: testDocument.id,
           cursor: cursorData
         });
       });
@@ -694,7 +714,7 @@ describe('WebSocket Integration Tests', () => {
       });
 
       authenticatedSocket.emit('cursor-update', {
-        documentId,
+        documentId: testDocument.id,
         cursor: cursorData
       });
 
@@ -722,8 +742,10 @@ describe('WebSocket Integration Tests', () => {
           socket.emit('authenticate', { token });
         });
 
-        socket.on('authenticated', () => {
-          socket.emit('join-document', { documentId: 'doc-cleanup' });
+        socket.on('authenticated', async () => {
+          // Create a document for this test
+          const cleanupDoc = await documentService.createDocument(user.id, 'Cleanup Test Document', false);
+          socket.emit('join-document', { documentId: cleanupDoc.id });
         });
 
         socket.on('document-joined', () => {

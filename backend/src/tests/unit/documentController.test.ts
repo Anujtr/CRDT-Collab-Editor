@@ -59,8 +59,10 @@ jest.mock('../../middleware/auth', () => ({
     req.user = {
       userId: 'test-user-123',
       username: 'testuser',
-      roles: ['editor'],
-      permissions: ['document:read', 'document:write']
+      role: 'editor',
+      permissions: ['document:read', 'document:write'],
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600
     };
     next();
   }
@@ -79,9 +81,21 @@ jest.mock('../../utils/logger', () => ({
 
 const app = express();
 app.use(express.json());
-// Don't use the middleware globally, we'll mock the auth in tests
 
-// Set up routes
+// Add mock user to all requests
+app.use((req: any, res, next) => {
+  req.user = {
+    userId: 'test-user-123',
+    username: 'testuser',
+    role: 'editor',
+    permissions: ['document:read', 'document:write'],
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600
+  };
+  next();
+});
+
+// Set up routes without auth middleware (since we're mocking the user above)
 app.post('/documents', createDocument);
 app.get('/documents/:documentId', getDocument);
 app.delete('/documents/:documentId', deleteDocument);

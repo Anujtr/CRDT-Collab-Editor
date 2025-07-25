@@ -1,6 +1,6 @@
 import rateLimit from 'express-rate-limit';
-import { redisClient } from '../config/database';
-import { logger } from '../utils/logger';
+import { RedisClient } from '../config/database';
+import logger from '../utils/logger';
 
 interface RateLimiterOptions {
   windowMs: number;
@@ -33,14 +33,15 @@ export const rateLimiter = (options: RateLimiterOptions) => {
     store: {
       incr: async (key: string) => {
         try {
-          const current = await redisClient.get(`ratelimit:${key}`);
+          const client = RedisClient.getClient();
+          const current = await client.get(`ratelimit:${key}`);
           if (!current) {
-            await redisClient.setex(`ratelimit:${key}`, Math.ceil(windowMs / 1000), '1');
+            await client.setEx(`ratelimit:${key}`, Math.ceil(windowMs / 1000), '1');
             return { totalHits: 1, resetTime: new Date(Date.now() + windowMs) };
           }
 
-          const totalHits = await redisClient.incr(`ratelimit:${key}`);
-          const ttl = await redisClient.ttl(`ratelimit:${key}`);
+          const totalHits = await client.incr(`ratelimit:${key}`);
+          const ttl = await client.ttl(`ratelimit:${key}`);
           const resetTime = new Date(Date.now() + ttl * 1000);
 
           return { totalHits, resetTime };
@@ -52,21 +53,20 @@ export const rateLimiter = (options: RateLimiterOptions) => {
       },
       decrement: async (key: string) => {
         try {
-          await redisClient.decr(`ratelimit:${key}`);
+          const client = RedisClient.getClient();
+          await client.decr(`ratelimit:${key}`);
         } catch (error) {
           logger.error('Redis rate limit decrement error:', error);
         }
       },
       resetKey: async (key: string) => {
         try {
-          await redisClient.del(`ratelimit:${key}`);
+          const client = RedisClient.getClient();
+          await client.del(`ratelimit:${key}`);
         } catch (error) {
           logger.error('Redis rate limit reset error:', error);
         }
       }
-    },
-    onLimitReached: (req, res, options) => {
-      logger.warn(`Rate limit exceeded for ${keyGenerator(req)}: ${req.method} ${req.path}`);
     }
   });
 };

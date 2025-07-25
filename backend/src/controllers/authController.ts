@@ -3,7 +3,6 @@ import { UserModel } from '../models/User';
 import { JWTUtils } from '../utils/jwt';
 import { LoginRequest, RegisterRequest, UserRole } from '../../../shared/src/types/auth';
 import { AUTH_ERRORS } from '../../../shared/src/constants/auth';
-import { AuthenticatedRequest } from '../middleware/auth';
 
 export class AuthController {
   static async register(req: Request, res: Response): Promise<void> {
@@ -157,7 +156,7 @@ export class AuthController {
     }
   }
 
-  static async getCurrentUser(req: AuthenticatedRequest, res: Response): Promise<void> {
+  static async getCurrentUser(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -217,7 +216,7 @@ export class AuthController {
     }
   }
 
-  static async refreshToken(req: AuthenticatedRequest, res: Response): Promise<void> {
+  static async refreshToken(req: Request, res: Response): Promise<void> {
     try {
       const { refreshToken } = req.body;
 
@@ -305,7 +304,7 @@ export class AuthController {
     }
   }
 
-  static async logout(req: AuthenticatedRequest, res: Response): Promise<void> {
+  static async logout(_req: Request, res: Response): Promise<void> {
     try {
       // In a real application, you would invalidate the token here
       // For now, we'll just return a success message

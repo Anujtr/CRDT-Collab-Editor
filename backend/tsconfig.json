@@ -32,8 +32,13 @@
       "@/utils/*": ["utils/*"],
       "@/websocket/*": ["websocket/*"],
       "@/config/*": ["../config/*"]
-    }
+    },
+    "typeRoots": ["./node_modules/@types", "./src/types"]
   },
   "include": ["src/**/*", "../shared/src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "src/tests/**/*"],
+  "ts-node": {
+    "files": true,
+    "typeCheck": true
+  }
 }

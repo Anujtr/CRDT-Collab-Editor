@@ -4,12 +4,8 @@ import { UserModel } from '../models/User';
 import { AuthTokenPayload, Permission, UserRole } from '../../../shared/src/types/auth';
 import { AUTH_ERRORS, ROLE_HIERARCHY } from '../../../shared/src/constants/auth';
 
-export interface AuthenticatedRequest extends Request {
-  user?: AuthTokenPayload;
-}
-
 export const authenticateToken = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
@@ -67,7 +63,7 @@ export const authenticateToken = async (
 };
 
 export const requirePermission = (permission: Permission) => {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         success: false,
@@ -103,7 +99,7 @@ export const requirePermission = (permission: Permission) => {
 };
 
 export const requireRole = (role: UserRole) => {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         success: false,
@@ -139,7 +135,7 @@ export const requireRole = (role: UserRole) => {
 };
 
 export const requireMinimumRole = (minimumRole: UserRole) => {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {
       res.status(401).json({
         success: false,
@@ -180,7 +176,7 @@ export const requireMinimumRole = (minimumRole: UserRole) => {
 };
 
 export const optionalAuth = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {

@@ -378,7 +378,8 @@ class DocumentService {
       const documents: DocumentMetadata[] = [];
 
       for (const key of keys) {
-        const metadata = await RedisClient.getCache(key.replace('document:metadata:', ''));
+        const documentId = key.replace('document:metadata:', '');
+        const metadata = await RedisClient.getCache(`document:metadata:${documentId}`);
         if (metadata) {
           const doc = JSON.parse(metadata) as DocumentMetadata;
           
@@ -585,6 +586,16 @@ class DocumentService {
     if (documentsToRemove.length > 0) {
       logger.info(`Cleaned up ${documentsToRemove.length} inactive documents from memory`);
     }
+  }
+
+  /**
+   * Clear all in-memory state (for testing purposes)
+   */
+  clearForTesting(): void {
+    this.documents.clear();
+    this.documentMetadata.clear();
+    this.documentAccess.clear();
+    this.updateHandlers.clear();
   }
 }
 

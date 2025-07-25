@@ -9,7 +9,7 @@ import {
 } from 'slate';
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
-import { cn } from '../../utils/cn';
+import { cn } from '../../utils';
 
 // Define custom types for Slate
 type CustomElement = {

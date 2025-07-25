@@ -15,7 +15,7 @@ import {
   AlignRight,
   AlignJustify
 } from 'lucide-react';
-import { cn } from '../../utils/cn';
+import { cn } from '../../utils';
 import { 
   isMarkActive, 
   toggleMark, 

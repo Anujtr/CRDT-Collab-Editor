@@ -31,15 +31,7 @@ const paginationSchema = Joi.object({
  */
 export const createDocument = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { error, value } = validateInput(createDocumentSchema, req.body);
-    if (error) {
-      res.status(400).json({
-        success: false,
-        error: 'Validation error',
-        details: error.details.map((d: any) => d.message)
-      });
-      return;
-    }
+    const value = validateInput(createDocumentSchema, req.body);
 
     const userId = req.user?.userId;
     if (!userId) {
@@ -58,6 +50,14 @@ export const createDocument = async (req: Request, res: Response): Promise<void>
       data: document
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'Validation error') {
+      res.status(400).json({
+        success: false,
+        error: 'Validation error'
+      });
+      return;
+    }
+
     logger.error('Error creating document:', error);
     res.status(500).json({
       success: false,
@@ -134,16 +134,7 @@ export const getDocument = async (req: Request, res: Response): Promise<void> =>
 export const updateDocument = async (req: Request, res: Response): Promise<void> => {
   try {
     const { documentId } = req.params;
-    const { error, value } = validateInput(updateDocumentSchema, req.body);
-    
-    if (error) {
-      res.status(400).json({
-        success: false,
-        error: 'Validation error',
-        details: error.details.map((d: any) => d.message)
-      });
-      return;
-    }
+    const value = validateInput(updateDocumentSchema, req.body);
 
     const userId = req.user?.userId;
     if (!userId || !documentId) {
@@ -190,6 +181,14 @@ export const updateDocument = async (req: Request, res: Response): Promise<void>
       data: metadata
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'Validation error') {
+      res.status(400).json({
+        success: false,
+        error: 'Validation error'
+      });
+      return;
+    }
+
     logger.error('Error updating document:', error);
     res.status(500).json({
       success: false,
@@ -241,14 +240,7 @@ export const deleteDocument = async (req: Request, res: Response): Promise<void>
  */
 export const listDocuments = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { error, value } = validateInput(paginationSchema, req.query);
-    if (error) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid pagination parameters'
-      });
-      return;
-    }
+    const value = validateInput(paginationSchema, req.query);
 
     const userId = req.user?.userId;
     if (!userId) {
@@ -267,6 +259,14 @@ export const listDocuments = async (req: Request, res: Response): Promise<void> 
       data: result
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'Validation error') {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid pagination parameters'
+      });
+      return;
+    }
+
     logger.error('Error listing documents:', error);
     res.status(500).json({
       success: false,
@@ -281,16 +281,7 @@ export const listDocuments = async (req: Request, res: Response): Promise<void> 
 export const addCollaborator = async (req: Request, res: Response): Promise<void> => {
   try {
     const { documentId } = req.params;
-    const { error, value } = validateInput(addCollaboratorSchema, req.body);
-    
-    if (error) {
-      res.status(400).json({
-        success: false,
-        error: 'Validation error',
-        details: error.details.map((d: any) => d.message)
-      });
-      return;
-    }
+    const value = validateInput(addCollaboratorSchema, req.body);
 
     const currentUserId = req.user?.userId;
     if (!currentUserId || !documentId) {
@@ -336,6 +327,14 @@ export const addCollaborator = async (req: Request, res: Response): Promise<void
       message: 'Collaborator added successfully'
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'Validation error') {
+      res.status(400).json({
+        success: false,
+        error: 'Validation error'
+      });
+      return;
+    }
+
     logger.error('Error adding collaborator:', error);
     res.status(500).json({
       success: false,
@@ -408,9 +407,9 @@ export const removeCollaborator = async (req: Request, res: Response): Promise<v
 export const getDocumentStats = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user?.userId;
-    const userRoles = req.user?.roles || [];
+    const userRole = req.user?.role;
 
-    if (!userId || !userRoles.includes(UserRole.ADMIN)) {
+    if (!userId || userRole !== UserRole.ADMIN) {
       res.status(403).json({
         success: false,
         error: 'Admin access required'
