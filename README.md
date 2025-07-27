@@ -1,6 +1,7 @@
 # CRDT Collaborative Editor
 
 A production-ready real-time collaborative text editor built with CRDTs, WebSockets, Redis Pub/Sub, role-based access control, and comprehensive offline support.
+
 <img width="1680" height="1010" alt="Screenshot 2025-07-27 at 3 30 56 PM" src="https://github.com/user-attachments/assets/d3d3724b-64c7-418e-8f5a-9fa34efdf045" />
 
 ## 🌟 Features
@@ -36,6 +37,7 @@ A production-ready real-time collaborative text editor built with CRDTs, WebSock
 - **Type-safe** development with extensive error handling
 
 ---
+
 <img width="1680" height="1011" alt="Screenshot 2025-07-27 at 3 30 40 PM" src="https://github.com/user-attachments/assets/11e2df79-93f6-43f4-bfad-667ad902658a" />
 
 ## 🏗️ Architecture
