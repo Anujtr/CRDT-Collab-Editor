@@ -76,3 +76,6 @@ dump.rdb
 # Monitoring data
 prometheus_data/
 grafana_data/
+
+# Implementation summary
+IMPLEMENTATIONSUMMARY.md
