@@ -28,7 +28,8 @@ class AuthService {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Login failed');
+      const errorMessage = errorData.error?.message || errorData.error || errorData.message || `Login failed (${response.status})`;
+      throw new Error(errorMessage);
     }
 
     const data: APIResponse<LoginResponse> = await response.json();
@@ -51,7 +52,8 @@ class AuthService {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Registration failed');
+      const errorMessage = errorData.error?.message || errorData.error || errorData.message || `Registration failed (${response.status})`;
+      throw new Error(errorMessage);
     }
 
     const data: APIResponse<RegisterResponse> = await response.json();

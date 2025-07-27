@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Search, FileText, Clock, Users, MoreHorizontal, Share2, Edit, Trash2 } from 'lucide-react';
 import { documentService } from '../../services/documentService';
 import { DocumentMetadata } from '../../types';
@@ -12,6 +12,7 @@ interface DocumentListProps {
 }
 
 export function DocumentList({ className }: DocumentListProps) {
+  const navigate = useNavigate();
   const [documents, setDocuments] = useState<DocumentMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +49,8 @@ export function DocumentList({ className }: DocumentListProps) {
       setShowCreateModal(false);
       toast.success('Document created successfully!');
       
-      // Navigate to the new document
-      window.location.href = `/editor/${newDoc.id}`;
+      // Navigate to the new document using React Router
+      navigate(`/document/${newDoc.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create document');
     }
@@ -232,7 +233,7 @@ function DocumentCard({ document, onDelete, onDuplicate }: DocumentCardProps) {
 
   return (
     <div className="relative group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-lg transition-shadow">
-      <Link to={`/editor/${document.id}`} className="block">
+      <Link to={`/document/${document.id}`} className="block">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">

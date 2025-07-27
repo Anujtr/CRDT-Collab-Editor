@@ -40,6 +40,7 @@ import { SocketHandlers } from './websocket/socketHandlers';
 
 // Import logger
 import logger from './utils/logger';
+import { JWTUtils } from './utils/jwt';
 
 class Server {
   private app: express.Application;
@@ -63,7 +64,41 @@ class Server {
         methods: ['GET', 'POST'],
         credentials: true
       },
-      path: '/ws/'
+      path: '/socket.io/'
+    });
+
+    // Add authentication middleware to handle auth from handshake
+    this.io.use(async (socket, next) => {
+      try {
+        const token = socket.handshake.auth?.token;
+        logger.info('Socket handshake auth check', {
+          socketId: socket.id,
+          hasToken: !!token,
+          authKeys: Object.keys(socket.handshake.auth || {})
+        });
+        
+        if (token) {
+          // Auto-authenticate if token is provided in handshake
+          const decoded = JWTUtils.verifyToken(token);
+          const user = await UserModel.findById(decoded.userId);
+          
+          if (user) {
+            (socket as any).user = decoded;
+            logger.info('Socket auto-authenticated via handshake', {
+              socketId: socket.id,
+              userId: user.id,
+              username: user.username
+            });
+          }
+        }
+        next();
+      } catch (error) {
+        logger.warn('Handshake authentication failed', {
+          socketId: socket.id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        next(); // Continue without auto-auth, allow manual auth later
+      }
     });
 
     this.initializeMiddleware();

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './providers/AuthProvider';
@@ -9,9 +9,50 @@ import { RegisterPage } from './components/auth/RegisterPage';
 import { DashboardPage } from './components/common/DashboardPage';
 import { EditorPage } from './components/editor/EditorPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { disableServiceWorkerInDev } from './utils/cacheBuster';
 import './styles/globals.css';
 
 function App() {
+  // Disable caching and service worker in development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      disableServiceWorkerInDev();
+      
+      // Add cache-busting only for static assets, not API calls
+      if (typeof window !== 'undefined') {
+        const originalFetch = window.fetch;
+        window.fetch = (url: any, options: any = {}) => {
+          // Only apply cache-busting to static assets, not API calls
+          if (typeof url === 'string' && 
+              url.startsWith('/') && 
+              !url.startsWith('/api') && 
+              !url.startsWith('/ws') &&
+              (url.includes('.js') || url.includes('.css') || url.includes('.html'))) {
+            const separator = url.includes('?') ? '&' : '?';
+            url = `${url}${separator}_t=${Date.now()}`;
+          }
+          
+          // Don't add cache headers to API requests
+          if (typeof url === 'string' && (url.includes('/api') || url.includes('localhost:8080'))) {
+            return originalFetch(url, options);
+          }
+          
+          return originalFetch(url, {
+            ...options,
+            headers: {
+              ...options.headers,
+              ...(typeof url === 'string' && !url.includes('/api') && {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+              }),
+            },
+          });
+        };
+      }
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <AuthProvider>
@@ -46,7 +87,7 @@ function App() {
               />
               
               {/* Fallback redirect */}
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
             
             {/* Global toast notifications */}

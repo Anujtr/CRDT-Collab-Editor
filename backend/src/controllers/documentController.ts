@@ -30,11 +30,20 @@ const paginationSchema = Joi.object({
  * Create a new document
  */
 export const createDocument = async (req: Request, res: Response): Promise<void> => {
+  logger.info('Document controller - createDocument called', {
+    userId: req.user?.userId,
+    body: req.body,
+    headers: req.headers.authorization ? 'present' : 'missing'
+  });
+  
   try {
+    logger.info('Document controller - validating input');
     const value = validateInput(createDocumentSchema, req.body);
+    logger.info('Document controller - input validated', { value });
 
     const userId = req.user?.userId;
     if (!userId) {
+      logger.warn('Document controller - user not authenticated');
       res.status(401).json({
         success: false,
         error: 'User not authenticated'
@@ -42,8 +51,10 @@ export const createDocument = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    logger.info('Document controller - calling documentService.createDocument');
     const { title, isPublic } = value;
     const document = await documentService.createDocument(userId, title, isPublic);
+    logger.info('Document controller - document created successfully', { documentId: document.id });
 
     res.status(201).json({
       success: true,

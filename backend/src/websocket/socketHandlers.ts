@@ -30,6 +30,25 @@ export class SocketHandlers {
       // Track WebSocket connection metrics
       metricsService.recordWebSocketConnection(true);
 
+      // Check if socket was auto-authenticated via handshake
+      const authenticatedSocket = socket as AuthenticatedSocket;
+      if (authenticatedSocket.user) {
+        // Add to connection manager
+        ConnectionManager.addConnection(authenticatedSocket);
+        
+        // Send authenticated event
+        socket.emit('authenticated', {
+          userId: authenticatedSocket.user.userId,
+          username: authenticatedSocket.user.username,
+          role: authenticatedSocket.user.role
+        });
+        
+        logger.info('Socket auto-authenticated and ready', {
+          socketId: socket.id,
+          userId: authenticatedSocket.user.userId
+        });
+      }
+
       // Set up authentication timeout
       const authTimeout = setTimeout(() => {
         if (!(socket as AuthenticatedSocket).user) {

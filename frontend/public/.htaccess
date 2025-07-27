@@ -1,0 +1,21 @@
+# Disable caching for development files
+<IfModule mod_headers.c>
+    # Disable caching for all files during development
+    <FilesMatch "\.(js|css|html|htm|json|xml)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+
+    # Disable caching for static assets during development
+    <FilesMatch "\.(ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+</IfModule>
+
+# Force latest IE rendering engine
+<IfModule mod_headers.c>
+    Header set X-UA-Compatible "IE=Edge,chrome=1"
+</IfModule>

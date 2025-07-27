@@ -9,6 +9,7 @@ import {
 import { Slate, Editable, withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
 import { cn } from '../../utils';
+import { EditorToolbar } from './EditorToolbar';
 
 // Define custom types for Slate
 type CustomElement = {
@@ -186,6 +187,7 @@ interface SlateEditorProps {
   readOnly?: boolean;
   className?: string;
   autoFocus?: boolean;
+  showToolbar?: boolean;
 }
 
 export function SlateEditor({
@@ -195,6 +197,7 @@ export function SlateEditor({
   readOnly = false,
   className,
   autoFocus = false,
+  showToolbar = true,
   editor: externalEditor // Accept external editor for collaborative editing
 }: SlateEditorProps & { editor?: any }) {
   // Use external editor if provided, otherwise create new one
@@ -253,10 +256,11 @@ export function SlateEditor({
 
   return (
     <div className={cn(
-      "w-full min-h-[400px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg",
+      "w-full min-h-[400px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden",
       className
     )}>
       <Slate editor={editor} initialValue={value} onValueChange={handleChange}>
+        {showToolbar && <EditorToolbar />}
         <Editable
           className="w-full h-full p-6 outline-none resize-none text-gray-900 dark:text-white"
           renderElement={renderElement}

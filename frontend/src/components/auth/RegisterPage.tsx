@@ -35,7 +35,8 @@ export function RegisterPage() {
   // Clear any auth errors when component mounts
   useEffect(() => {
     clearError();
-  }, [clearError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Show error toast when auth error occurs
   useEffect(() => {
@@ -43,7 +44,8 @@ export function RegisterPage() {
       toast.error(error);
       clearError();
     }
-  }, [error, clearError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
 
   const onSubmit = async (data: RegisterFormData) => {
     try {

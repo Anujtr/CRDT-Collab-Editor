@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useReducer } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useCallback } from 'react';
 import { AuthState, User } from '../types';
 import { authService } from '../services/auth/authService';
 import { storage } from '../utils';
@@ -125,7 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const login = async (username: string, password: string, rememberMe: boolean = false) => {
+  const login = useCallback(async (username: string, password: string, rememberMe: boolean = false) => {
     dispatch({ type: 'AUTH_START' });
 
     try {
@@ -151,9 +151,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       dispatch({ type: 'AUTH_ERROR', payload: errorMessage });
       throw error;
     }
-  };
+  }, []);
 
-  const register = async (username: string, email: string, password: string) => {
+  const register = useCallback(async (username: string, email: string, password: string) => {
     dispatch({ type: 'AUTH_START' });
 
     try {
@@ -174,9 +174,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       dispatch({ type: 'AUTH_ERROR', payload: errorMessage });
       throw error;
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       // Call logout API to invalidate token on server
       if (state.token) {
@@ -193,9 +193,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       dispatch({ type: 'AUTH_LOGOUT' });
     }
-  };
+  }, [state.token]);
 
-  const refreshToken = async () => {
+  const refreshToken = useCallback(async () => {
     if (!state.token) {
       throw new Error('No token to refresh');
     }
@@ -217,16 +217,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await logout();
       throw error;
     }
-  };
+  }, [state.token, logout]);
 
-  const updateUser = (user: User) => {
+  const updateUser = useCallback((user: User) => {
     storage.set(USER_STORAGE_KEY, user);
     dispatch({ type: 'UPDATE_USER', payload: user });
-  };
+  }, []);
 
-  const clearError = () => {
+  const clearError = useCallback(() => {
     dispatch({ type: 'CLEAR_ERROR' });
-  };
+  }, []);
 
   const value: AuthContextValue = {
     ...state,

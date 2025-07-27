@@ -11,7 +11,7 @@ interface ConnectionOptions {
 }
 
 const DEFAULT_OPTIONS: ConnectionOptions = {
-  autoConnect: true,
+  autoConnect: false, // Disable auto-connect to prevent immediate connection attempts
   maxRetries: 5,
   retryDelay: 1000,
 };
@@ -29,8 +29,15 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
   
   // Get WebSocket URL from environment or default to localhost
   const getSocketUrl = useCallback(() => {
-    const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8080';
-    return baseUrl;
+    // Use WS_URL if available, otherwise derive from API_URL by removing /api suffix
+    const wsUrl = process.env.REACT_APP_WS_URL;
+    if (wsUrl) {
+      return wsUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
+    }
+    
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+    // Remove /api suffix if present to get base server URL
+    return apiUrl.replace(/\/api$/, '');
   }, []);
 
   const clearRetryTimeout = useCallback(() => {
@@ -59,20 +66,26 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
     try {
       const socketUrl = getSocketUrl();
       
-      // Create socket connection
+      // Create socket connection with retry logic
       const socket = io(socketUrl, {
-        path: '/ws/',
+        path: '/socket.io/',
         transports: ['websocket', 'polling'],
         auth: {
           token
         },
-        autoConnect: false
+        autoConnect: false,
+        forceNew: true,
+        timeout: 10000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000
       });
 
       socketRef.current = socket;
 
       // Connection event handlers
       socket.on('connect', () => {
+        console.log('useConnection: Socket connected, authenticating...');
         isConnectingRef.current = false;
         clearRetryTimeout();
         updateConnectionState({
@@ -82,11 +95,14 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
           error: undefined
         });
         
-        // Authenticate with the server
-        socket.emit('authenticate', { token });
+        // Add small delay before authentication to ensure connection is stable
+        setTimeout(() => {
+          console.log('useConnection: Sending authenticate event');
+          socket.emit('authenticate', { token });
+        }, 100);
       });
 
-      socket.on('authenticated', () => {
+      socket.on('authenticated', (data) => {
         updateConnectionState({ status: 'authenticated' });
         toast.success('Connected to server');
       });
@@ -101,6 +117,7 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
       });
 
       socket.on('disconnect', (reason) => {
+        console.log('useConnection: Socket disconnected:', reason);
         isConnectingRef.current = false;
         updateConnectionState({
           status: 'disconnected',
@@ -114,6 +131,7 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
       });
 
       socket.on('connect_error', (error) => {
+        console.error('useConnection: Connection error:', error);
         isConnectingRef.current = false;
         updateConnectionState({
           status: 'disconnected',
@@ -132,8 +150,11 @@ export function useConnection(options: ConnectionOptions = DEFAULT_OPTIONS) {
         toast.error(`Connection error: ${error.message}`);
       });
 
-      // Connect the socket
-      socket.connect();
+      // Add small delay before connecting to ensure backend is ready
+      setTimeout(() => {
+        console.log('useConnection: Starting connection to:', socketUrl);
+        socket.connect();
+      }, 200);
 
     } catch (error) {
       isConnectingRef.current = false;

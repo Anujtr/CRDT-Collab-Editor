@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Menu, 
   X, 
@@ -23,8 +23,8 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const { user, logout } = useAuth();
-  const { connectionState } = useConnection();
+  const { user, logout, isAuthenticated } = useAuth();
+  const { connectionState, connect } = useConnection();
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -35,6 +35,13 @@ export function Layout({ children }: LayoutProps) {
   const handleLogout = async () => {
     await logout();
   };
+
+  // Auto-connect to WebSocket when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && connectionState.status === 'disconnected') {
+      connect();
+    }
+  }, [isAuthenticated, connectionState.status, connect]);
 
   const navigation = [
     { name: 'Documents', href: '/', icon: FileText },

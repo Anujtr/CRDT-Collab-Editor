@@ -43,8 +43,12 @@ class DocumentService {
    * Create a new document
    */
   async createDocument(ownerId: string, title?: string, isPublic: boolean = false): Promise<DocumentMetadata> {
+    logger.info('Creating document start', { ownerId, title, isPublic });
+    
     const documentId = uuidv4();
     const now = new Date().toISOString();
+    
+    logger.info('Generated document ID', { documentId });
     
     const metadata: DocumentMetadata = {
       id: documentId,
@@ -58,9 +62,13 @@ class DocumentService {
       version: 0
     };
 
+    logger.info('Created metadata', { metadata });
+
     // Create new Yjs document
     const doc = new Y.Doc();
     doc.guid = documentId;
+    
+    logger.info('Created Y.Doc instance');
     
     // Initialize with empty Slate.js structure
     const slateContent = doc.getArray('content');
@@ -68,6 +76,8 @@ class DocumentService {
       type: 'paragraph',
       children: [{ text: '' }]
     }]);
+
+    logger.info('Initialized Slate content');
 
     // Store in memory and Redis
     this.documents.set(documentId, doc);
@@ -78,8 +88,15 @@ class DocumentService {
       joinedAt: now
     }]));
 
+    logger.info('Stored in memory');
+
+    logger.info('About to persist document');
     await this.persistDocument(documentId);
+    logger.info('Document persisted');
+    
+    logger.info('About to persist metadata');
     await this.persistMetadata(documentId);
+    logger.info('Metadata persisted');
 
     logger.info(`Document created: ${documentId} by user: ${ownerId}`);
     metricsService.incrementDocumentCreated();
@@ -455,13 +472,25 @@ class DocumentService {
    * Persist document to Redis
    */
   private async persistDocument(documentId: string): Promise<void> {
+    logger.info('persistDocument start', { documentId });
+    
     const doc = this.documents.get(documentId);
     if (!doc) {
+      logger.warn('persistDocument: no doc found', { documentId });
       return;
     }
 
+    logger.info('persistDocument: encoding state');
     const state = Y.encodeStateAsUpdate(doc);
-    await RedisClient.setCache(`document:${documentId}`, Buffer.from(state));
+    logger.info('persistDocument: state encoded', { stateLength: state.length });
+    
+    // Convert Buffer to base64 string for JSON serialization
+    const stateString = Buffer.from(state).toString('base64');
+    logger.info('persistDocument: converted to base64', { base64Length: stateString.length });
+    
+    logger.info('persistDocument: calling Redis setCache');
+    await RedisClient.setCache(`document:${documentId}`, stateString);
+    logger.info('persistDocument: Redis setCache completed');
   }
 
   /**
@@ -469,16 +498,16 @@ class DocumentService {
    */
   private async loadDocument(documentId: string): Promise<Y.Doc | null> {
     try {
-      const state = await RedisClient.getCache(`document:${documentId}`);
-      if (!state) {
+      const stateString = await RedisClient.getCache(`document:${documentId}`);
+      if (!stateString) {
         return null;
       }
 
       const doc = new Y.Doc();
       doc.guid = documentId;
       
-      // Apply stored state
-      const update = new Uint8Array(Buffer.from(state, 'binary'));
+      // Apply stored state (decode from base64)
+      const update = new Uint8Array(Buffer.from(stateString, 'base64'));
       Y.applyUpdate(doc, update);
 
       return doc;
@@ -492,12 +521,17 @@ class DocumentService {
    * Persist metadata to Redis
    */
   private async persistMetadata(documentId: string): Promise<void> {
+    logger.info('persistMetadata start', { documentId });
+    
     const metadata = this.documentMetadata.get(documentId);
     if (!metadata) {
+      logger.warn('persistMetadata: no metadata found', { documentId });
       return;
     }
 
-    await RedisClient.setCache(`document:metadata:${documentId}`, JSON.stringify(metadata));
+    logger.info('persistMetadata: calling Redis setCache');
+    await RedisClient.setCache(`document:metadata:${documentId}`, metadata);
+    logger.info('persistMetadata: Redis setCache completed');
   }
 
   /**

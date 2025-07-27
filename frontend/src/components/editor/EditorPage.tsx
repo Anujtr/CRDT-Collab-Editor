@@ -2,7 +2,6 @@ import React from 'react';
 import { useParams } from 'react-router-dom';
 import { EditorProvider, useEditor } from './EditorProvider';
 import { SlateEditor } from './SlateEditor';
-import { EditorToolbar } from './EditorToolbar';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 
 function EditorContent() {
@@ -101,17 +100,15 @@ function EditorContent() {
       </div>
 
       {/* Editor */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
-        <EditorToolbar />
-        <SlateEditor
-          editor={editor}
-          value={editorValue}
-          onChange={setEditorValue}
-          placeholder="Start typing..."
-          autoFocus={true}
-          className="min-h-[500px]"
-        />
-      </div>
+      <SlateEditor
+        editor={editor}
+        value={editorValue}
+        onChange={setEditorValue}
+        placeholder="Start typing..."
+        autoFocus={true}
+        showToolbar={true}
+        className="min-h-[500px] shadow-sm"
+      />
     </div>
   );
 }

@@ -25,7 +25,8 @@ const createLimiter = rateLimiter({
 });
 
 // Document CRUD operations
-router.post('/', createLimiter, createDocument);
+// Temporarily disable rate limiter for debugging
+router.post('/', createDocument);
 router.get('/', listDocuments);
 router.get('/stats', getDocumentStats);
 router.get('/:documentId', getDocument);
