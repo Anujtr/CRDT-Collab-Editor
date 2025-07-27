@@ -1,6 +1,7 @@
 # CRDT Collaborative Editor
 
 A production-ready real-time collaborative text editor built with CRDTs, WebSockets, Redis Pub/Sub, role-based access control, and comprehensive offline support.
+<img width="1680" height="1010" alt="Screenshot 2025-07-27 at 3 30 56 PM" src="https://github.com/user-attachments/assets/d3d3724b-64c7-418e-8f5a-9fa34efdf045" />
 
 ## 🌟 Features
 
@@ -35,6 +36,7 @@ A production-ready real-time collaborative text editor built with CRDTs, WebSock
 - **Type-safe** development with extensive error handling
 
 ---
+<img width="1680" height="1011" alt="Screenshot 2025-07-27 at 3 30 40 PM" src="https://github.com/user-attachments/assets/11e2df79-93f6-43f4-bfad-667ad902658a" />
 
 ## 🏗️ Architecture
 
@@ -140,6 +142,8 @@ npm start
 | **Viewer** | `document:read` | Read-only access to documents |
 | **User** | Basic access | Limited access, assignable permissions |
 
+<img width="1680" height="1012" alt="Screenshot 2025-07-27 at 3 30 02 PM" src="https://github.com/user-attachments/assets/188bc75e-bc89-4229-808b-de99eec0337d" />
+
 ### JWT Claims Structure
 
 ```json
@@ -177,6 +181,7 @@ curl -X POST http://localhost:8080/api/auth/login \
 curl -X GET http://localhost:8080/api/documents/doc1 \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
+<img width="1680" height="1011" alt="Screenshot 2025-07-27 at 3 30 14 PM" src="https://github.com/user-attachments/assets/d5cbef6c-7348-4a52-9be0-2e239af34dac" />
 
 ---
 
@@ -261,38 +266,6 @@ curl http://localhost:8080/metrics
 curl -H "Authorization: Bearer ADMIN_TOKEN" \
      http://localhost:8080/api/connections
 ```
-
----
-
-## 🧪 Testing
-
-### Test Suites
-
-```bash
-# Backend unit tests
-cd backend && npm test
-
-# Frontend tests (100% success rate)
-cd frontend && npm test
-
-# Integration tests
-npm run test:integration
-
-# Chaos engineering tests
-npm run test:chaos
-```
-
-### Test Coverage
-- **Backend Unit Tests**: Authentication, CRDT operations, Redis pub/sub (96.1% success rate)
-- **Backend Integration Tests**: WebSocket connections, real-time sync
-- **Frontend Component Tests**: Authentication UI, WebSocket hooks, form validation (100% success rate)  
-- **Frontend Integration Tests**: AuthFlow, service integration (100% success rate)
-- **Chaos Tests**: Network partitions, connection drops, load testing
-- **Security Tests**: JWT validation, role enforcement
-
-### Known Test Limitations
-- **ComponentIntegration.test.tsx**: Strategically disabled due to complex BrowserRouter vs MemoryRouter conflicts
-- **Backend WebSocket Tests**: 4/19 tests have timeout issues in test environment (production functionality unaffected)
 
 ---
 
