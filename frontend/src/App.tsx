@@ -95,22 +95,36 @@ function App() {
               position="top-right"
               toastOptions={{
                 duration: 4000,
+                className: 'backdrop-blur-sm',
                 style: {
-                  background: '#363636',
-                  color: '#fff',
+                  background: 'rgb(255 255 255 / 0.9)',
+                  color: '#1f2937',
+                  border: '1px solid rgb(229 231 235)',
+                  borderRadius: '0.75rem',
+                  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
                 },
                 success: {
                   duration: 3000,
                   iconTheme: {
-                    primary: '#10b981',
+                    primary: '#059669',
                     secondary: '#fff',
+                  },
+                  style: {
+                    background: 'rgb(240 253 244 / 0.9)',
+                    color: '#065f46',
+                    border: '1px solid rgb(167 243 208)',
                   },
                 },
                 error: {
                   duration: 5000,
                   iconTheme: {
-                    primary: '#ef4444',
+                    primary: '#dc2626',
                     secondary: '#fff',
+                  },
+                  style: {
+                    background: 'rgb(254 242 242 / 0.9)',
+                    color: '#991b1b',
+                    border: '1px solid rgb(254 202 202)',
                   },
                 },
               }}

@@ -80,70 +80,67 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 transition-colors duration-200">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="flex items-center gap-2">
-            <FileText className="h-8 w-8 text-blue-600" />
+        <div className="flex justify-center mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center shadow-lg">
+              <FileText className="h-5 w-5 text-white" />
+            </div>
             <span className="text-2xl font-bold text-gray-900 dark:text-white">
               CRDT Editor
             </span>
           </div>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-          Sign in to your account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-          Or{' '}
-          <Link
-            to="/register"
-            className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            create a new account
-          </Link>
-        </p>
+        <div className="text-center">
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Welcome back
+          </h2>
+          <p className="mt-3 text-gray-600 dark:text-gray-400">
+            Sign in to your account to continue
+          </p>
+        </div>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white dark:bg-gray-800 py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="card p-8 shadow-xl backdrop-blur-sm animate-slide-up">
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
             {/* Username */}
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="space-y-2">
+              <label htmlFor="username" className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                 Username
               </label>
-              <div className="mt-1">
-                <input
-                  {...register('username', {
-                    required: 'Username is required',
-                    minLength: {
-                      value: 3,
-                      message: 'Username must be at least 3 characters'
-                    }
-                  })}
-                  id="username"
-                  type="text"
-                  autoComplete="username"
-                  className={cn(
-                    'appearance-none block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
-                    errors.username && 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                  )}
-                  placeholder="Enter your username"
-                />
-                {errors.username && (
-                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-                    {errors.username.message}
-                  </p>
+              <input
+                {...register('username', {
+                  required: 'Username is required',
+                  minLength: {
+                    value: 3,
+                    message: 'Username must be at least 3 characters'
+                  }
+                })}
+                id="username"
+                type="text"
+                autoComplete="username"
+                className={cn(
+                  'input-field',
+                  errors.username && 'border-red-500 focus:border-red-500 focus:ring-red-500'
                 )}
-              </div>
+                placeholder="Enter your username"
+              />
+              {errors.username && (
+                <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                  <span className="w-1 h-1 bg-red-500 rounded-full"></span>
+                  {errors.username.message}
+                </p>
+              )}
             </div>
 
             {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                 Password
               </label>
-              <div className="mt-1 relative">
+              <div className="relative">
                 <input
                   {...register('password', {
                     required: 'Password is required',
@@ -156,40 +153,41 @@ export function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   className={cn(
-                    'appearance-none block w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 dark:placeholder-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
-                    errors.password && 'border-red-300 focus:border-red-500 focus:ring-red-500'
+                    'input-field pr-10',
+                    errors.password && 'border-red-500 focus:border-red-500 focus:ring-red-500'
                   )}
                   placeholder="Enter your password"
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   onClick={togglePasswordVisibility}
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4 text-gray-400 hover:text-gray-500" />
+                    <EyeOff className="h-4 w-4" />
                   ) : (
-                    <Eye className="h-4 w-4 text-gray-400 hover:text-gray-500" />
+                    <Eye className="h-4 w-4" />
                   )}
                 </button>
-                {errors.password && (
-                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-                    {errors.password.message}
-                  </p>
-                )}
               </div>
+              {errors.password && (
+                <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                  <span className="w-1 h-1 bg-red-500 rounded-full"></span>
+                  {errors.password.message}
+                </p>
+              )}
             </div>
 
             {/* Remember me */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between pt-2">
               <div className="flex items-center">
                 <input
                   {...register('rememberMe')}
                   id="rememberMe"
                   type="checkbox"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                  className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600 rounded transition-colors"
                 />
-                <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">
+                <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                   Remember me
                 </label>
               </div>
@@ -197,19 +195,19 @@ export function LoginPage() {
               <div className="text-sm">
                 <Link
                   to="/forgot-password"
-                  className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+                  className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300 transition-colors"
                 >
-                  Forgot your password?
+                  Forgot password?
                 </Link>
               </div>
             </div>
 
             {/* Submit button */}
-            <div>
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors"
+                className="btn-primary w-full py-3"
               >
                 {isSubmitting ? (
                   <LoadingSpinner size="sm" color="white" />
@@ -224,21 +222,37 @@ export function LoginPage() {
 
             {/* Root error */}
             {errors.root && (
-              <div className="rounded-md bg-red-50 dark:bg-red-900 p-4">
-                <p className="text-sm text-red-600 dark:text-red-400">
+              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
+                <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1">
+                  <span className="w-1 h-1 bg-red-500 rounded-full"></span>
                   {errors.root.message}
                 </p>
               </div>
             )}
           </form>
 
+          {/* Sign up link */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Don't have an account?{' '}
+              <Link
+                to="/register"
+                className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300 transition-colors"
+              >
+                Create one now
+              </Link>
+            </p>
+          </div>
+
           {/* Demo credentials */}
           {process.env.NODE_ENV === 'development' && (
-            <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <p className="font-medium mb-2">Demo Credentials:</p>
-                <p>Username: demo</p>
-                <p>Password: DemoPassword123!</p>
+            <div className="mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">Demo Credentials</p>
+                <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                  <p><span className="font-medium">Username:</span> demo</p>
+                  <p><span className="font-medium">Password:</span> DemoPassword123!</p>
+                </div>
               </div>
             </div>
           )}

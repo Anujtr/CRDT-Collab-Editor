@@ -107,16 +107,16 @@ export function DocumentList({ className }: DocumentListProps) {
   return (
     <div className={cn("space-y-6", className)}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Documents</h1>
-          <p className="mt-1 text-gray-600 dark:text-gray-400">
-            Manage your collaborative documents
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Documents</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">
+            Create, manage, and collaborate on your documents
           </p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          className="btn-primary shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
         >
           <Plus className="w-4 h-4 mr-2" />
           New Document
@@ -124,24 +124,27 @@ export function DocumentList({ className }: DocumentListProps) {
       </div>
 
       {/* Search */}
-      <div className="relative">
+      <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
           type="text"
           placeholder="Search documents..."
           value={searchQuery}
           onChange={(e) => handleSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="input-field pl-10 w-full"
         />
       </div>
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <p className="text-red-800 dark:text-red-200">{error}</p>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 animate-slide-up">
+          <p className="text-red-800 dark:text-red-200 flex items-center gap-2">
+            <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+            {error}
+          </p>
           <button
             onClick={() => loadDocuments()}
-            className="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline"
+            className="mt-3 text-sm font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
           >
             Try again
           </button>
@@ -150,33 +153,40 @@ export function DocumentList({ className }: DocumentListProps) {
 
       {/* Documents Grid */}
       {documents.length === 0 && !isLoading ? (
-        <div className="text-center py-12">
-          <FileText className="mx-auto w-12 h-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+        <div className="text-center py-16 animate-fade-in">
+          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center">
+            <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
             No documents found
           </h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            {searchQuery ? 'Try a different search term' : 'Create your first document to get started'}
+          <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-sm mx-auto">
+            {searchQuery ? 'Try a different search term or create a new document' : 'Create your first document to get started with collaborative editing'}
           </p>
           {!searchQuery && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+              className="btn-primary shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create Document
+              Create your first document
             </button>
           )}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {documents.map((document) => (
-            <DocumentCard
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {documents.map((document, index) => (
+            <div 
               key={document.id}
-              document={document}
-              onDelete={() => handleDeleteDocument(document.id)}
-              onDuplicate={() => handleDuplicateDocument(document.id, document.title)}
-            />
+              className="animate-slide-up"
+              style={{ animationDelay: `${index * 0.1}s` }}
+            >
+              <DocumentCard
+                document={document}
+                onDelete={() => handleDeleteDocument(document.id)}
+                onDuplicate={() => handleDuplicateDocument(document.id, document.title)}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -232,36 +242,44 @@ function DocumentCard({ document, onDelete, onDuplicate }: DocumentCardProps) {
   const [showMenu, setShowMenu] = useState(false);
 
   return (
-    <div className="relative group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-lg transition-shadow">
+    <div className="relative group card-hover p-6 transform hover:scale-[1.02] transition-all duration-200">
       <Link to={`/document/${document.id}`} className="block">
-        <div className="flex items-start justify-between mb-3">
+        <div className="flex items-start justify-between mb-4">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
-              {document.title}
-            </h3>
-            <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500 dark:text-gray-400">
-              <div className="flex items-center">
-                <Clock className="w-3 h-3 mr-1" />
-                {formatRelativeTime(document.updatedAt)}
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-900/20 dark:to-primary-800/20 rounded-xl flex items-center justify-center">
+                <FileText className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                  {document.title}
+                </h3>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span>{formatRelativeTime(document.updatedAt)}</span>
               </div>
               {document.collaboratorCount > 1 && (
-                <div className="flex items-center">
-                  <Users className="w-3 h-3 mr-1" />
-                  {document.collaboratorCount}
+                <div className="flex items-center gap-1">
+                  <Users className="w-3 h-3" />
+                  <span>{document.collaboratorCount}</span>
                 </div>
               )}
               {document.isPublic && (
-                <div className="flex items-center">
-                  <Share2 className="w-3 h-3 mr-1" />
-                  Public
+                <div className="flex items-center gap-1 px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-full">
+                  <Share2 className="w-3 h-3" />
+                  <span>Public</span>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          Last activity: {formatRelativeTime(document.lastActivity)}
+        <div className="text-sm text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-3">
+          <span className="font-medium">Last activity:</span> {formatRelativeTime(document.lastActivity)}
         </div>
       </Link>
 
@@ -272,35 +290,37 @@ function DocumentCard({ document, onDelete, onDuplicate }: DocumentCardProps) {
             e.preventDefault();
             setShowMenu(!showMenu);
           }}
-          className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition-opacity"
+          className="btn-ghost p-2 opacity-0 group-hover:opacity-100 transition-all duration-200"
         >
           <MoreHorizontal className="w-4 h-4" />
         </button>
 
         {showMenu && (
-          <div className="absolute right-0 top-8 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                onDuplicate();
-                setShowMenu(false);
-              }}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center"
-            >
-              <Edit className="w-4 h-4 mr-2" />
-              Duplicate
-            </button>
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                onDelete();
-                setShowMenu(false);
-              }}
-              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete
-            </button>
+          <div className="absolute right-0 top-10 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 animate-scale-in backdrop-blur-sm">
+            <div className="p-2 space-y-1">
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  onDuplicate();
+                  setShowMenu(false);
+                }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg flex items-center transition-colors"
+              >
+                <Edit className="w-4 h-4 mr-3 text-gray-400" />
+                <span>Duplicate</span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  onDelete();
+                  setShowMenu(false);
+                }}
+                className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex items-center transition-colors"
+              >
+                <Trash2 className="w-4 h-4 mr-3" />
+                <span>Delete</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -331,15 +351,20 @@ function CreateDocumentModal({ onClose, onCreate }: CreateDocumentModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-          Create New Document
-        </h2>
+    <div className="fixed inset-0 bg-black/20 dark:bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="card max-w-md w-full p-6 shadow-2xl animate-scale-in">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center">
+            <Plus className="w-5 h-5 text-white" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Create New Document
+          </h2>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
               Document Title
             </label>
             <input
@@ -347,40 +372,44 @@ function CreateDocumentModal({ onClose, onCreate }: CreateDocumentModalProps) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Enter document title..."
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="input-field w-full"
               autoFocus
               required
             />
           </div>
 
-          <div className="flex items-center">
+          <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="isPublic"
               checked={isPublic}
               onChange={(e) => setIsPublic(e.target.checked)}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 dark:border-gray-600 rounded transition-colors"
             />
-            <label htmlFor="isPublic" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+            <label htmlFor="isPublic" className="text-sm text-gray-700 dark:text-gray-300">
               Make document public
             </label>
           </div>
 
-          <div className="flex items-center justify-end space-x-3 pt-4">
+          <div className="flex items-center gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isCreating}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              className="btn-secondary flex-1"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!title.trim() || isCreating}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg transition-colors flex items-center"
+              className="btn-primary flex-1"
             >
-              {isCreating && <LoadingSpinner size="sm" className="mr-2" />}
+              {isCreating ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" />
+              )}
               Create Document
             </button>
           </div>
