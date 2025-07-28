@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './providers/AuthProvider';
+import { ConnectionProvider } from './contexts/ConnectionContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { Layout } from './components/common/Layout';
 import { LoginPage } from './components/auth/LoginPage';
@@ -56,7 +57,8 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <Router>
+        <ConnectionProvider>
+          <Router>
           <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             <Routes>
               {/* Public routes */}
@@ -130,7 +132,8 @@ function App() {
               }}
             />
           </div>
-        </Router>
+          </Router>
+        </ConnectionProvider>
       </AuthProvider>
     </ErrorBoundary>
   );
