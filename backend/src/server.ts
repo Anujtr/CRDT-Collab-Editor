@@ -33,7 +33,8 @@ import apiRoutes from './routes/index';
 import { RedisClient } from './config/database';
 
 // Import models
-import { UserModel } from './models/User';
+import { UserDatabaseModel } from './models/UserDatabase';
+import { databaseService } from './config/database-service';
 
 // Import WebSocket handlers
 import { SocketHandlers } from './websocket/socketHandlers';
@@ -80,7 +81,7 @@ class Server {
         if (token) {
           // Auto-authenticate if token is provided in handshake
           const decoded = JWTUtils.verifyToken(token);
-          const user = await UserModel.findById(decoded.userId);
+          const user = await UserDatabaseModel.findById(decoded.userId);
           
           if (user) {
             (socket as any).user = decoded;
@@ -180,20 +181,31 @@ class Server {
 
   private async connectToDatabase(): Promise<void> {
     try {
+      // Connect to PostgreSQL first
+      await databaseService.connect();
+      logger.info('PostgreSQL connection established successfully');
+      
+      // Then connect to Redis
       await RedisClient.connect();
       logger.info('Redis connection established successfully');
     } catch (error) {
-      logger.error('Failed to connect to Redis', { 
+      logger.error('Failed to connect to databases', { 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      // Continue in standalone mode for development
-      logger.warn('Running in standalone mode - Redis features disabled');
+      
+      // For PostgreSQL connection failures, we should not continue
+      if (error instanceof Error && error.message.includes('Database')) {
+        throw error;
+      }
+      
+      // Continue in standalone mode for Redis failures
+      logger.warn('Running with limited Redis features - some functionality may be disabled');
     }
   }
 
   private async initializeData(): Promise<void> {
     try {
-      await UserModel.initialize();
+      await UserDatabaseModel.initialize();
       logger.info('Data initialization completed');
     } catch (error) {
       logger.error('Failed to initialize data', { 
@@ -232,6 +244,7 @@ class Server {
 
   public async stop(): Promise<void> {
     try {
+      await databaseService.disconnect();
       await RedisClient.disconnect();
       this.server.close();
       logger.info('Server stopped gracefully');
