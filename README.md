@@ -1,6 +1,6 @@
 # CRDT Collaborative Editor
 
-A production-ready real-time collaborative text editor built with CRDTs, WebSockets, Redis Pub/Sub, role-based access control, and comprehensive offline support.
+A real-time collaborative text editor built with CRDTs, WebSockets, PostgreSQL, Redis Pub/Sub, role-based access control, and comprehensive offline support.
 
 <img width="1680" height="1010" alt="Screenshot 2025-07-27 at 3 30 56 PM" src="https://github.com/user-attachments/assets/d3d3724b-64c7-418e-8f5a-9fa34efdf045" />
 
@@ -73,10 +73,11 @@ A production-ready real-time collaborative text editor built with CRDTs, WebSock
 |-------|------------|---------|
 | **Frontend** | React + Slate.js | Rich text editor with CRDT integration |
 | **CRDT Engine** | Yjs | Conflict-free replicated data types |
-| **Real-time** | WebSockets + Redis Pub/Sub | Message broadcasting |
+| **Real-time** | WebSockets + Redis Pub/Sub | Message broadcasting and synchronization |
 | **Backend** | Node.js + Express | REST API + WebSocket server |
 | **Authentication** | JWT + RBAC | Security and permissions |
-| **Storage** | Redis + IndexedDB + S3 | Persistence layers |
+| **Database** | PostgreSQL + Prisma | Primary data persistence |
+| **Storage** | Redis + IndexedDB + S3 | Multi-layer persistence strategy |
 | **Offline** | Service Workers + PWA | Offline-first experience |
 | **Infrastructure** | Docker + Nginx | Deployment and scaling |
 | **Monitoring** | Prometheus + Grafana | Observability |
@@ -88,47 +89,93 @@ A production-ready real-time collaborative text editor built with CRDTs, WebSock
 
 ### Prerequisites
 - **Node.js** >= 18
-- **Redis** server
+- **PostgreSQL** >= 13
 - **Docker** (optional but recommended)
 
 ### Option 1: Docker Deployment (Recommended)
 
 ```bash
-# Clone repository
+# 1. Clone repository
 git clone https://github.com/Anujtr/CRDT-Collab-Editor.git
 cd CRDT-Collab-Editor
 
-# Copy environment file and configure
-cp .env.example .env
-# Edit .env with your settings
-
-# Start all services
+# 2. Start PostgreSQL database
 cd infra
-docker-compose up -d
+docker-compose up postgres -d
 
-# Access the application
-open http://localhost
-```
+# 3. Setup backend environment and database
+cd ../backend
+cat > .env << EOF
+NODE_ENV=development
+PORT=8080
+JWT_SECRET=your-super-secret-jwt-key-here
+DATABASE_URL=postgresql://crdtuser:crdtpass@localhost:5432/crdt_collab_editor
+CLIENT_URL=http://localhost:3000
+EOF
 
-### Option 2: Local Development
+# 4. Install dependencies and run migrations
+npm install
+npx prisma migrate dev
 
-```bash
-# 1. Install dependencies
-cd backend && npm install
-cd ../frontend && npm install
-
-# 2. Start Redis
-redis-server
-
-# 3. Start backend (Terminal 1)
-cd backend
+# 5. Start backend (Terminal 1)
 npm run dev
 
-# 4. Start frontend (Terminal 2)  
-cd frontend
+# 6. Start frontend (Terminal 2)
+cd ../frontend
+npm install
 npm start
 
-# 5. Open multiple tabs at http://localhost:3000
+# 7. Access the application
+open http://localhost:3000
+```
+
+### Option 2: Local Development (PostgreSQL Required)
+
+```bash
+# 1. Install PostgreSQL locally
+# macOS: brew install postgresql
+# Ubuntu: sudo apt-get install postgresql postgresql-contrib
+# Windows: Download from https://www.postgresql.org/download/
+
+# 2. Create database and user
+sudo -u postgres psql
+CREATE DATABASE crdt_collab_editor;
+CREATE USER crdtuser WITH PASSWORD 'crdtpass';
+GRANT ALL PRIVILEGES ON DATABASE crdt_collab_editor TO crdtuser;
+\q
+
+# 3. Clone and setup project
+git clone https://github.com/Anujtr/CRDT-Collab-Editor.git
+cd CRDT-Collab-Editor
+
+# 4. Setup backend
+cd backend
+npm install
+
+# Create environment file
+cat > .env << EOF
+NODE_ENV=development
+PORT=8080
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+DATABASE_URL=postgresql://crdtuser:crdtpass@localhost:5432/crdt_collab_editor
+CLIENT_URL=http://localhost:3000
+EOF
+
+# Run database migrations
+npx prisma migrate dev
+
+# 5. Setup frontend
+cd ../frontend
+npm install
+
+# 6. Start both services
+# Terminal 1 - Backend
+cd backend && npm run dev
+
+# Terminal 2 - Frontend  
+cd frontend && npm start
+
+# 7. Open multiple tabs at http://localhost:3000 to test collaboration
 ```
 
 ---
