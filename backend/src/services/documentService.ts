@@ -1,9 +1,12 @@
 import * as Y from 'yjs';
 import { v4 as uuidv4 } from 'uuid';
 import { RedisClient } from '../config/database';
+import { DocumentDatabaseModel, DocumentMetadata as DBDocumentMetadata, DocumentWithCollaborators } from '../models/DocumentDatabase';
+import { Permission } from '../../../shared/src/types/auth';
 import logger from '../utils/logger';
 import { metricsService } from './metricsService';
 
+// Use database model for metadata, keep service interface for compatibility
 interface DocumentMetadata {
   id: string;
   title: string;
@@ -29,14 +32,29 @@ interface DocumentUpdate {
   timestamp: number;
 }
 
+interface QueuedUpdate {
+  documentId: string;
+  userId: string;
+  update: Uint8Array;
+  timestamp: number;
+  retryCount: number;
+  maxRetries: number;
+  originalTimestamp: number;
+}
+
 class DocumentService {
   private documents: Map<string, Y.Doc> = new Map();
   private documentMetadata: Map<string, DocumentMetadata> = new Map();
   private documentAccess: Map<string, Set<DocumentAccess>> = new Map();
   private updateHandlers: Map<string, Set<(update: DocumentUpdate) => void>> = new Map();
+  private updateQueue: Map<string, QueuedUpdate[]> = new Map();
+  private processingQueue = false;
+  private queueProcessInterval: NodeJS.Timeout | null = null;
+  private fallbackBroadcaster: ((update: DocumentUpdate) => void) | null = null;
 
   constructor() {
     this.setupRedisSubscription();
+    this.startQueueProcessor();
   }
 
   /**
@@ -46,23 +64,30 @@ class DocumentService {
     logger.info('Creating document start', { ownerId, title, isPublic });
     
     const documentId = uuidv4();
-    const now = new Date().toISOString();
-    
     logger.info('Generated document ID', { documentId });
     
-    const metadata: DocumentMetadata = {
+    // Create document in database first
+    const dbDocument = await DocumentDatabaseModel.create({
       id: documentId,
       title: title || 'Untitled Document',
       ownerId,
-      collaborators: [ownerId],
-      isPublic,
-      createdAt: now,
-      updatedAt: now,
-      lastActivity: now,
-      version: 0
-    };
+      isPublic
+    });
 
-    logger.info('Created metadata', { metadata });
+    logger.info('Created document in database', { dbDocument });
+
+    // Convert database document to service format
+    const metadata: DocumentMetadata = {
+      id: dbDocument.id,
+      title: dbDocument.title,
+      ownerId: dbDocument.ownerId,
+      collaborators: [dbDocument.ownerId], // Owner is always a collaborator
+      isPublic: dbDocument.isPublic,
+      createdAt: dbDocument.createdAt.toISOString(),
+      updatedAt: dbDocument.updatedAt.toISOString(),
+      lastActivity: dbDocument.lastActivity.toISOString(),
+      version: dbDocument.version
+    };
 
     // Create new Yjs document
     const doc = new Y.Doc();
@@ -70,12 +95,12 @@ class DocumentService {
     
     logger.info('Created Y.Doc instance');
     
-    // Initialize with empty Slate.js structure
-    const slateContent = doc.getArray('content');
-    slateContent.insert(0, [{
-      type: 'paragraph',
-      children: [{ text: '' }]
-    }]);
+    // Initialize with empty text content for now
+    // TODO: Later we'll switch to proper Yjs Array structure for Slate.js
+    const textContent = doc.getText('content');
+    if (textContent.length === 0) {
+      textContent.insert(0, ''); // Empty document
+    }
 
     logger.info('Initialized Slate content');
 
@@ -85,18 +110,14 @@ class DocumentService {
     this.documentAccess.set(documentId, new Set([{
       userId: ownerId,
       permission: 'admin',
-      joinedAt: now
+      joinedAt: dbDocument.createdAt.toISOString()
     }]));
 
     logger.info('Stored in memory');
 
-    logger.info('About to persist document');
+    logger.info('About to persist document to Redis');
     await this.persistDocument(documentId);
-    logger.info('Document persisted');
-    
-    logger.info('About to persist metadata');
-    await this.persistMetadata(documentId);
-    logger.info('Metadata persisted');
+    logger.info('Document persisted to Redis');
 
     logger.info(`Document created: ${documentId} by user: ${ownerId}`);
     metricsService.incrementDocumentCreated();
@@ -132,10 +153,38 @@ class DocumentService {
       return this.documentMetadata.get(documentId)!;
     }
 
-    // Load from Redis
-    const metadata = await this.loadMetadata(documentId);
-    if (metadata) {
+    // Load from database
+    const dbDocument = await DocumentDatabaseModel.findById(documentId);
+    if (dbDocument) {
+      const metadata: DocumentMetadata = {
+        id: dbDocument.id,
+        title: dbDocument.title,
+        ownerId: dbDocument.ownerId,
+        collaborators: [dbDocument.ownerId, ...dbDocument.collaborators.map(c => c.userId)],
+        isPublic: dbDocument.isPublic,
+        createdAt: dbDocument.createdAt.toISOString(),
+        updatedAt: dbDocument.updatedAt.toISOString(),
+        lastActivity: dbDocument.lastActivity.toISOString(),
+        version: dbDocument.version
+      };
+      
       this.documentMetadata.set(documentId, metadata);
+      
+      // Also cache access permissions
+      const accessSet = new Set([
+        {
+          userId: dbDocument.ownerId,
+          permission: 'admin' as const,
+          joinedAt: dbDocument.createdAt.toISOString()
+        },
+        ...dbDocument.collaborators.map(c => ({
+          userId: c.userId,
+          permission: c.permission === Permission.DOCUMENT_WRITE ? 'write' as const : 'read' as const,
+          joinedAt: c.joinedAt.toISOString()
+        }))
+      ]);
+      this.documentAccess.set(documentId, accessSet);
+      
       return metadata;
     }
 
@@ -159,16 +208,48 @@ class DocumentService {
         return false;
       }
 
+      const result = await this.processUpdate(documentId, userId, update);
+      if (!result.success) {
+        // Queue update for retry if it's a recoverable error
+        if (result.retryable) {
+          await this.queueUpdateForRetry(documentId, userId, update);
+          logger.warn(`Update queued for retry: ${documentId} by user: ${userId}`);
+        }
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      logger.error(`Error applying update to document ${documentId}:`, error);
+      // Queue for retry on unexpected errors
+      await this.queueUpdateForRetry(documentId, userId, update);
+      return false;
+    }
+  }
+
+  /**
+   * Process a document update with error handling
+   */
+  private async processUpdate(documentId: string, userId: string, update: Uint8Array): Promise<{ success: boolean; retryable: boolean; error?: Error }> {
+    try {
+      const doc = this.documents.get(documentId);
+      if (!doc) {
+        return { success: false, retryable: false };
+      }
+
       // Apply update to Yjs document
       Y.applyUpdate(doc, update);
 
-      // Update metadata
+      // Update metadata in database
+      await DocumentDatabaseModel.updateActivity(documentId);
+      
+      // Update in-memory metadata if cached
       const metadata = this.documentMetadata.get(documentId);
       if (metadata) {
-        metadata.updatedAt = new Date().toISOString();
-        metadata.lastActivity = new Date().toISOString();
+        const now = new Date().toISOString();
+        metadata.updatedAt = now;
+        metadata.lastActivity = now;
         metadata.version += 1;
-        await this.persistMetadata(documentId);
       }
 
       // Persist document state
@@ -187,17 +268,159 @@ class DocumentService {
       // Notify update handlers
       const handlers = this.updateHandlers.get(documentId);
       if (handlers) {
-        handlers.forEach(handler => handler(updateData));
+        handlers.forEach(handler => {
+          try {
+            handler(updateData);
+          } catch (handlerError) {
+            logger.error(`Error in update handler for document ${documentId}:`, handlerError);
+          }
+        });
       }
 
       metricsService.incrementDocumentUpdate();
       logger.debug(`Document updated: ${documentId} by user: ${userId}`);
 
-      return true;
+      return { success: true, retryable: false };
     } catch (error) {
-      logger.error(`Error applying update to document ${documentId}:`, error);
-      return false;
+      const isRetryable = this.isRetryableError(error);
+      logger.error(`Error processing update for document ${documentId}:`, error);
+      return { success: false, retryable: isRetryable, error: error as Error };
     }
+  }
+
+  /**
+   * Determine if an error is retryable
+   */
+  private isRetryableError(error: any): boolean {
+    // Network errors, timeout errors, and temporary Redis failures are retryable
+    const errorMessage = error?.message?.toLowerCase() || '';
+    return (
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('network') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('econnreset') ||
+      errorMessage.includes('enotfound') ||
+      error?.code === 'REDIS_CONNECTION_ERROR'
+    );
+  }
+
+  /**
+   * Queue an update for retry
+   */
+  private async queueUpdateForRetry(documentId: string, userId: string, update: Uint8Array, maxRetries: number = 3): Promise<void> {
+    const queuedUpdate: QueuedUpdate = {
+      documentId,
+      userId,
+      update,
+      timestamp: Date.now(),
+      retryCount: 0,
+      maxRetries,
+      originalTimestamp: Date.now()
+    };
+
+    if (!this.updateQueue.has(documentId)) {
+      this.updateQueue.set(documentId, []);
+    }
+
+    this.updateQueue.get(documentId)!.push(queuedUpdate);
+    logger.info(`Update queued for retry: ${documentId} (queue size: ${this.updateQueue.get(documentId)!.length})`);
+  }
+
+  /**
+   * Start the queue processor
+   */
+  private startQueueProcessor(): void {
+    if (this.queueProcessInterval) {
+      clearInterval(this.queueProcessInterval);
+    }
+
+    this.queueProcessInterval = setInterval(async () => {
+      if (!this.processingQueue) {
+        await this.processUpdateQueue();
+      }
+    }, 5000); // Process queue every 5 seconds
+  }
+
+  /**
+   * Process the update queue
+   */
+  private async processUpdateQueue(): Promise<void> {
+    if (this.processingQueue) {
+      return;
+    }
+
+    this.processingQueue = true;
+    
+    try {
+      for (const [documentId, updates] of this.updateQueue.entries()) {
+        if (updates.length === 0) {
+          continue;
+        }
+
+        const processedUpdates: number[] = [];
+        
+        for (let i = 0; i < updates.length; i++) {
+          const queuedUpdate = updates[i];
+          if (!queuedUpdate) {
+            continue;
+          }
+          
+          // Skip updates that are too old (older than 5 minutes)
+          if (Date.now() - queuedUpdate.originalTimestamp > 5 * 60 * 1000) {
+            logger.warn(`Dropping expired update for document ${documentId}`);
+            processedUpdates.push(i);
+            continue;
+          }
+
+          // Try to process the update
+          const result = await this.processUpdate(queuedUpdate.documentId, queuedUpdate.userId, queuedUpdate.update);
+          
+          if (result.success) {
+            logger.info(`Successfully processed queued update for document ${documentId}`);
+            processedUpdates.push(i);
+          } else if (queuedUpdate.retryCount >= queuedUpdate.maxRetries) {
+            logger.error(`Max retries exceeded for update in document ${documentId}, dropping update`);
+            processedUpdates.push(i);
+          } else {
+            // Increment retry count with exponential backoff
+            queuedUpdate.retryCount++;
+            queuedUpdate.timestamp = Date.now() + (Math.pow(2, queuedUpdate.retryCount) * 1000);
+            logger.info(`Retry ${queuedUpdate.retryCount}/${queuedUpdate.maxRetries} scheduled for document ${documentId}`);
+          }
+        }
+
+        // Remove processed updates (in reverse order to maintain indices)
+        processedUpdates.reverse().forEach(index => {
+          updates.splice(index, 1);
+        });
+
+        // Clean up empty queues
+        if (updates.length === 0) {
+          this.updateQueue.delete(documentId);
+        }
+      }
+    } catch (error) {
+      logger.error('Error processing update queue:', error);
+    } finally {
+      this.processingQueue = false;
+    }
+  }
+
+  /**
+   * Get queue statistics for monitoring
+   */
+  getQueueStats(): { totalQueued: number; queuesByDocument: Record<string, number> } {
+    const stats = {
+      totalQueued: 0,
+      queuesByDocument: {} as Record<string, number>
+    };
+
+    for (const [documentId, updates] of this.updateQueue.entries()) {
+      stats.queuesByDocument[documentId] = updates.length;
+      stats.totalQueued += updates.length;
+    }
+
+    return stats;
   }
 
   /**
@@ -217,42 +440,43 @@ class DocumentService {
    */
   async addCollaborator(documentId: string, userId: string, permission: 'read' | 'write' = 'write'): Promise<boolean> {
     try {
-      const metadata = await this.getDocumentMetadata(documentId);
-      if (!metadata) {
-        return false;
-      }
-
-      // Update metadata
-      if (!metadata.collaborators.includes(userId)) {
-        metadata.collaborators.push(userId);
-        metadata.updatedAt = new Date().toISOString();
-        await this.persistMetadata(documentId);
-      }
-
-      // Update access permissions
-      let accessSet = this.documentAccess.get(documentId);
-      if (!accessSet) {
-        accessSet = new Set();
-        this.documentAccess.set(documentId, accessSet);
-      }
-
-      // Remove existing access entry for this user
-      for (const access of accessSet) {
-        if (access.userId === userId) {
-          accessSet.delete(access);
-          break;
+      const dbPermission = permission === 'write' ? Permission.DOCUMENT_WRITE : Permission.DOCUMENT_READ;
+      const success = await DocumentDatabaseModel.addCollaborator(documentId, userId, dbPermission);
+      
+      if (success) {
+        // Update cached metadata if it exists
+        const metadata = this.documentMetadata.get(documentId);
+        if (metadata && !metadata.collaborators.includes(userId)) {
+          metadata.collaborators.push(userId);
+          metadata.updatedAt = new Date().toISOString();
         }
+
+        // Update cached access permissions
+        let accessSet = this.documentAccess.get(documentId);
+        if (!accessSet) {
+          accessSet = new Set();
+          this.documentAccess.set(documentId, accessSet);
+        }
+
+        // Remove existing access entry for this user
+        for (const access of accessSet) {
+          if (access.userId === userId) {
+            accessSet.delete(access);
+            break;
+          }
+        }
+
+        // Add new access entry
+        accessSet.add({
+          userId,
+          permission,
+          joinedAt: new Date().toISOString()
+        });
+
+        logger.info(`User ${userId} added as ${permission} collaborator to document ${documentId}`);
       }
-
-      // Add new access entry
-      accessSet.add({
-        userId,
-        permission,
-        joinedAt: new Date().toISOString()
-      });
-
-      logger.info(`User ${userId} added as ${permission} collaborator to document ${documentId}`);
-      return true;
+      
+      return success;
     } catch (error) {
       logger.error(`Error adding collaborator to document ${documentId}:`, error);
       return false;
@@ -264,29 +488,31 @@ class DocumentService {
    */
   async removeCollaborator(documentId: string, userId: string): Promise<boolean> {
     try {
-      const metadata = await this.getDocumentMetadata(documentId);
-      if (!metadata) {
-        return false;
-      }
+      const success = await DocumentDatabaseModel.removeCollaborator(documentId, userId);
+      
+      if (success) {
+        // Update cached metadata if it exists
+        const metadata = this.documentMetadata.get(documentId);
+        if (metadata) {
+          metadata.collaborators = metadata.collaborators.filter(id => id !== userId);
+          metadata.updatedAt = new Date().toISOString();
+        }
 
-      // Update metadata
-      metadata.collaborators = metadata.collaborators.filter(id => id !== userId);
-      metadata.updatedAt = new Date().toISOString();
-      await this.persistMetadata(documentId);
-
-      // Update access permissions
-      const accessSet = this.documentAccess.get(documentId);
-      if (accessSet) {
-        for (const access of accessSet) {
-          if (access.userId === userId) {
-            accessSet.delete(access);
-            break;
+        // Update cached access permissions
+        const accessSet = this.documentAccess.get(documentId);
+        if (accessSet) {
+          for (const access of accessSet) {
+            if (access.userId === userId) {
+              accessSet.delete(access);
+              break;
+            }
           }
         }
-      }
 
-      logger.info(`User ${userId} removed from document ${documentId}`);
-      return true;
+        logger.info(`User ${userId} removed from document ${documentId}`);
+      }
+      
+      return success;
     } catch (error) {
       logger.error(`Error removing collaborator from document ${documentId}:`, error);
       return false;
@@ -297,50 +523,14 @@ class DocumentService {
    * Check if user has read access to document
    */
   async hasReadAccess(documentId: string, userId: string): Promise<boolean> {
-    const metadata = await this.getDocumentMetadata(documentId);
-    if (!metadata) {
-      return false;
-    }
-
-    // Document owner always has access
-    if (metadata.ownerId === userId) {
-      return true;
-    }
-
-    // Public documents are readable by all
-    if (metadata.isPublic) {
-      return true;
-    }
-
-    // Check if user is a collaborator
-    return metadata.collaborators.includes(userId);
+    return await DocumentDatabaseModel.hasAccess(documentId, userId, Permission.DOCUMENT_READ);
   }
 
   /**
    * Check if user has write access to document
    */
   async hasWriteAccess(documentId: string, userId: string): Promise<boolean> {
-    const metadata = await this.getDocumentMetadata(documentId);
-    if (!metadata) {
-      return false;
-    }
-
-    // Document owner always has write access
-    if (metadata.ownerId === userId) {
-      return true;
-    }
-
-    // Check specific permissions
-    const accessSet = this.documentAccess.get(documentId);
-    if (accessSet) {
-      for (const access of accessSet) {
-        if (access.userId === userId && (access.permission === 'write' || access.permission === 'admin')) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return await DocumentDatabaseModel.hasAccess(documentId, userId, Permission.DOCUMENT_WRITE);
   }
 
   /**
@@ -348,6 +538,7 @@ class DocumentService {
    */
   async deleteDocument(documentId: string, userId: string): Promise<boolean> {
     try {
+      // Check permissions first
       const metadata = await this.getDocumentMetadata(documentId);
       if (!metadata) {
         return false;
@@ -359,20 +550,24 @@ class DocumentService {
         return false;
       }
 
-      // Remove from memory
-      this.documents.delete(documentId);
-      this.documentMetadata.delete(documentId);
-      this.documentAccess.delete(documentId);
-      this.updateHandlers.delete(documentId);
+      // Delete from database
+      const success = await DocumentDatabaseModel.deleteById(documentId);
+      
+      if (success) {
+        // Remove from memory
+        this.documents.delete(documentId);
+        this.documentMetadata.delete(documentId);
+        this.documentAccess.delete(documentId);
+        this.updateHandlers.delete(documentId);
 
-      // Remove from Redis
-      await RedisClient.deleteCache(`document:${documentId}`);
-      await RedisClient.deleteCache(`document:metadata:${documentId}`);
+        // Remove from Redis
+        await RedisClient.deleteCache(`document:${documentId}`);
 
-      logger.info(`Document deleted: ${documentId} by user: ${userId}`);
-      metricsService.incrementDocumentDeleted();
+        logger.info(`Document deleted: ${documentId} by user: ${userId}`);
+        metricsService.incrementDocumentDeleted();
+      }
 
-      return true;
+      return success;
     } catch (error) {
       logger.error(`Error deleting document ${documentId}:`, error);
       return false;
@@ -387,51 +582,30 @@ class DocumentService {
     total: number;
     page: number;
     totalPages: number;
+    fallbackMode: boolean;
   }> {
     try {
-      // Check if Redis is connected
-      if (!RedisClient.isClientConnected()) {
-        logger.warn('Redis not connected - returning empty document list for development');
-        return {
-          documents: [],
-          total: 0,
-          page: 1,
-          totalPages: 0
-        };
-      }
-
-      // Get all document keys from Redis
-      const client = RedisClient.getClient();
-      const keys = await client.keys('document:metadata:*');
-      const documents: DocumentMetadata[] = [];
-
-      for (const key of keys) {
-        const documentId = key.replace('document:metadata:', '');
-        const metadata = await RedisClient.getCache(`document:metadata:${documentId}`);
-        if (metadata) {
-          const doc = JSON.parse(metadata) as DocumentMetadata;
-          
-          // Check if user has access
-          if (await this.hasReadAccess(doc.id, userId)) {
-            documents.push(doc);
-          }
-        }
-      }
-
-      // Sort by last activity
-      documents.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
-
-      // Apply pagination
-      const total = documents.length;
-      const totalPages = Math.ceil(total / limit);
-      const start = (page - 1) * limit;
-      const paginatedDocuments = documents.slice(start, start + limit);
+      const result = await DocumentDatabaseModel.listForUser(userId, { page, limit });
+      
+      // Convert database documents to service format
+      const documents: DocumentMetadata[] = result.documents.map(doc => ({
+        id: doc.id,
+        title: doc.title,
+        ownerId: doc.ownerId,
+        collaborators: [doc.ownerId, ...doc.collaborators.map(c => c.userId)],
+        isPublic: doc.isPublic,
+        createdAt: doc.createdAt.toISOString(),
+        updatedAt: doc.updatedAt.toISOString(),
+        lastActivity: doc.lastActivity.toISOString(),
+        version: doc.version
+      }));
 
       return {
-        documents: paginatedDocuments,
-        total,
-        page,
-        totalPages
+        documents,
+        total: result.total,
+        page: result.page,
+        totalPages: result.totalPages,
+        fallbackMode: false // Using database, not fallback
       };
     } catch (error) {
       logger.error(`Error listing documents for user ${userId}:`, error);
@@ -439,7 +613,8 @@ class DocumentService {
         documents: [],
         total: 0,
         page,
-        totalPages: 0
+        totalPages: 0,
+        fallbackMode: true
       };
     }
   }
@@ -517,51 +692,49 @@ class DocumentService {
     }
   }
 
-  /**
-   * Persist metadata to Redis
-   */
-  private async persistMetadata(documentId: string): Promise<void> {
-    logger.info('persistMetadata start', { documentId });
-    
-    const metadata = this.documentMetadata.get(documentId);
-    if (!metadata) {
-      logger.warn('persistMetadata: no metadata found', { documentId });
-      return;
-    }
 
-    logger.info('persistMetadata: calling Redis setCache');
-    await RedisClient.setCache(`document:metadata:${documentId}`, metadata);
-    logger.info('persistMetadata: Redis setCache completed');
+  /**
+   * Set fallback broadcaster for when Redis is unavailable
+   */
+  setFallbackBroadcaster(broadcaster: (update: DocumentUpdate) => void): void {
+    this.fallbackBroadcaster = broadcaster;
   }
 
   /**
-   * Load metadata from Redis
-   */
-  private async loadMetadata(documentId: string): Promise<DocumentMetadata | null> {
-    try {
-      const metadata = await RedisClient.getCache(`document:metadata:${documentId}`);
-      if (!metadata) {
-        return null;
-      }
-
-      return JSON.parse(metadata) as DocumentMetadata;
-    } catch (error) {
-      logger.error(`Error loading metadata for document ${documentId}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Broadcast update to all connected clients via Redis pub/sub
+   * Broadcast update to all connected clients via Redis pub/sub or fallback
    */
   private async broadcastUpdate(update: DocumentUpdate): Promise<void> {
     try {
-      await RedisClient.publishDocumentUpdate(update.documentId, {
+      const result = await RedisClient.publishDocumentUpdate(update.documentId, {
         ...update,
         update: Array.from(update.update) // Convert Uint8Array to regular array for JSON
       });
+
+      // If Redis publish failed, use fallback broadcasting
+      if (!result.success && result.fallback) {
+        logger.info(`Using fallback broadcasting for document ${update.documentId}`);
+        if (this.fallbackBroadcaster) {
+          try {
+            this.fallbackBroadcaster(update);
+          } catch (fallbackError) {
+            logger.error(`Fallback broadcasting failed for document ${update.documentId}:`, fallbackError);
+          }
+        } else {
+          logger.warn(`No fallback broadcaster available for document ${update.documentId}`);
+        }
+      }
     } catch (error) {
       logger.error(`Error broadcasting update for document ${update.documentId}:`, error);
+      
+      // Try fallback as last resort
+      if (this.fallbackBroadcaster) {
+        try {
+          this.fallbackBroadcaster(update);
+          logger.info(`Fallback broadcasting succeeded for document ${update.documentId}`);
+        } catch (fallbackError) {
+          logger.error(`Fallback broadcasting also failed for document ${update.documentId}:`, fallbackError);
+        }
+      }
     }
   }
 
@@ -569,7 +742,23 @@ class DocumentService {
    * Setup Redis subscription for document updates
    */
   private setupRedisSubscription(): void {
-    RedisClient.subscribeToDocument('updates', (data: any) => {
+    this.subscribeToRedisUpdates();
+    
+    // Periodically check Redis health and resubscribe if needed
+    setInterval(() => {
+      if (RedisClient.isFallbackMode()) {
+        logger.debug('Redis in fallback mode, attempting to resubscribe');
+        this.subscribeToRedisUpdates();
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  /**
+   * Subscribe to Redis updates with error handling
+   */
+  private async subscribeToRedisUpdates(): Promise<void> {
+    try {
+      const result = await RedisClient.subscribeToDocument('updates', (data: any) => {
         try {
           const updateData = data;
           const update: DocumentUpdate = {
@@ -580,12 +769,25 @@ class DocumentService {
           // Notify local handlers (including WebSocket handlers)
           const handlers = this.updateHandlers.get(update.documentId);
           if (handlers) {
-            handlers.forEach(handler => handler(update));
+            handlers.forEach(handler => {
+              try {
+                handler(update);
+              } catch (handlerError) {
+                logger.error(`Error in update handler for document ${update.documentId}:`, handlerError);
+              }
+            });
           }
         } catch (error) {
           logger.error('Error processing document update from Redis:', error);
         }
-    });
+      });
+
+      if (!result.success && result.fallback) {
+        logger.warn('Redis subscription failed, running in direct broadcast mode');
+      }
+    } catch (error) {
+      logger.error('Error setting up Redis subscription:', error);
+    }
   }
 
   /**
@@ -595,16 +797,26 @@ class DocumentService {
     totalDocuments: number;
     activeDocuments: number;
     totalUpdates: number;
+    redisHealth: any;
+    queueStats: any;
+    dbStats: any;
   }> {
-    const client = RedisClient.getClient();
-    const keys = await client.keys('document:metadata:*');
-    const totalDocuments = keys.length;
     const activeDocuments = this.documents.size;
+    let dbStats = { totalDocuments: 0, publicDocuments: 0, totalCollaborators: 0 };
+    
+    try {
+      dbStats = await DocumentDatabaseModel.getStats();
+    } catch (error) {
+      logger.error('Error getting database document stats:', error);
+    }
 
     return {
-      totalDocuments,
+      totalDocuments: dbStats.totalDocuments,
       activeDocuments,
-      totalUpdates: metricsService.getDocumentUpdateCount()
+      totalUpdates: metricsService.getDocumentUpdateCount(),
+      redisHealth: RedisClient.getHealthStatus(),
+      queueStats: this.getQueueStats(),
+      dbStats
     };
   }
 
@@ -637,10 +849,29 @@ class DocumentService {
    * Clear all in-memory state (for testing purposes)
    */
   clearForTesting(): void {
+    if (this.queueProcessInterval) {
+      clearInterval(this.queueProcessInterval);
+      this.queueProcessInterval = null;
+    }
+    
     this.documents.clear();
     this.documentMetadata.clear();
     this.documentAccess.clear();
     this.updateHandlers.clear();
+    this.updateQueue.clear();
+    this.processingQueue = false;
+  }
+  
+  /**
+   * Shutdown method for graceful cleanup
+   */
+  shutdown(): void {
+    if (this.queueProcessInterval) {
+      clearInterval(this.queueProcessInterval);
+      this.queueProcessInterval = null;
+    }
+    
+    logger.info('DocumentService shutdown complete');
   }
 }
 

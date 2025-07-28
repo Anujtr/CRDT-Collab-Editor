@@ -8,6 +8,12 @@ export class RedisClient {
   private static isConnected = false;
   private static connectionRetries = 0;
   private static maxRetries = 5;
+  private static healthCheckInterval: NodeJS.Timeout | null = null;
+  private static lastHealthCheck = 0;
+  private static healthCheckFrequency = 30000; // 30 seconds
+  private static fallbackMode = false;
+  private static reconnectAttempts = 0;
+  private static maxReconnectAttempts = 10;
 
   static async connect(): Promise<void> {
     try {
@@ -39,10 +45,16 @@ export class RedisClient {
 
       this.isConnected = true;
       this.connectionRetries = 0;
+      this.fallbackMode = false;
+      this.reconnectAttempts = 0;
       logger.info('Redis connection established successfully');
+      
+      // Start health monitoring
+      this.startHealthMonitoring();
 
     } catch (error) {
       this.isConnected = false;
+      this.fallbackMode = true;
       this.connectionRetries++;
 
       logger.error('Failed to connect to Redis', { 
@@ -61,10 +73,11 @@ export class RedisClient {
           });
         }, delay);
       } else {
-        logger.error('Max Redis connection retries reached, running in standalone mode');
+        logger.error('Max Redis connection retries reached, running in fallback mode');
+        this.enableFallbackMode();
       }
 
-      throw error;
+      // Don't throw error - allow application to continue in fallback mode
     }
   }
 
@@ -73,6 +86,7 @@ export class RedisClient {
     this.client.on('error', (err) => {
       logger.error('Redis Client Error', { error: err.message });
       this.isConnected = false;
+      this.handleConnectionLoss();
     });
 
     this.client.on('connect', () => {
@@ -82,35 +96,143 @@ export class RedisClient {
     this.client.on('ready', () => {
       logger.info('Redis Client Ready');
       this.isConnected = true;
+      this.fallbackMode = false;
+      this.reconnectAttempts = 0;
     });
 
     this.client.on('disconnect', () => {
       logger.warn('Redis Client Disconnected');
       this.isConnected = false;
+      this.handleConnectionLoss();
     });
 
     this.client.on('reconnecting', () => {
       logger.info('Redis Client Reconnecting...');
+      this.reconnectAttempts++;
     });
 
     // Publisher events
     this.publisher.on('error', (err) => {
       logger.error('Redis Publisher Error', { error: err.message });
+      this.handleConnectionLoss();
+    });
+
+    this.publisher.on('disconnect', () => {
+      logger.warn('Redis Publisher Disconnected');
+      this.handleConnectionLoss();
     });
 
     // Subscriber events
     this.subscriber.on('error', (err) => {
       logger.error('Redis Subscriber Error', { error: err.message });
+      this.handleConnectionLoss();
     });
+
+    this.subscriber.on('disconnect', () => {
+      logger.warn('Redis Subscriber Disconnected');
+      this.handleConnectionLoss();
+    });
+  }
+
+  /**
+   * Handle Redis connection loss
+   */
+  private static handleConnectionLoss(): void {
+    if (!this.fallbackMode) {
+      logger.warn('Redis connection lost, enabling fallback mode');
+      this.fallbackMode = true;
+      
+      // Attempt to reconnect
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        const delay = Math.min(this.reconnectAttempts * 2000, 30000);
+        setTimeout(() => {
+          this.attemptReconnect();
+        }, delay);
+      }
+    }
+  }
+
+  /**
+   * Attempt to reconnect to Redis
+   */
+  private static async attemptReconnect(): Promise<void> {
+    try {
+      logger.info('Attempting Redis reconnection...');
+      await this.connect();
+      logger.info('Redis reconnection successful');
+    } catch (error) {
+      logger.error('Redis reconnection failed:', error);
+      
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        const delay = Math.min(this.reconnectAttempts * 2000, 30000);
+        setTimeout(() => {
+          this.attemptReconnect();
+        }, delay);
+      } else {
+        logger.error('Max reconnection attempts reached, staying in fallback mode');
+      }
+    }
+  }
+
+  /**
+   * Enable fallback mode for when Redis is unavailable
+   */
+  private static enableFallbackMode(): void {
+    this.fallbackMode = true;
+    logger.info('Redis fallback mode enabled - some features may have limited functionality');
+  }
+
+  /**
+   * Start health monitoring
+   */
+  private static startHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
+    this.healthCheckInterval = setInterval(async () => {
+      await this.performHealthCheck();
+    }, this.healthCheckFrequency);
+  }
+
+  /**
+   * Perform health check
+   */
+  private static async performHealthCheck(): Promise<void> {
+    try {
+      if (this.isConnected && this.client) {
+        const response = await this.client.ping();
+        this.lastHealthCheck = Date.now();
+        
+        if (response === 'PONG') {
+          if (this.fallbackMode) {
+            logger.info('Redis health check passed, disabling fallback mode');
+            this.fallbackMode = false;
+          }
+        } else {
+          throw new Error('Invalid ping response');
+        }
+      }
+    } catch (error) {
+      logger.error('Redis health check failed:', error);
+      this.handleConnectionLoss();
+    }
   }
 
   static async disconnect(): Promise<void> {
     try {
+      // Stop health monitoring
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = null;
+      }
+
       if (this.client) await this.client.disconnect();
       if (this.publisher) await this.publisher.disconnect();
       if (this.subscriber) await this.subscriber.disconnect();
       
       this.isConnected = false;
+      this.fallbackMode = false;
       logger.info('Redis connections closed');
     } catch (error) {
       logger.error('Error disconnecting from Redis', { 
@@ -141,7 +263,31 @@ export class RedisClient {
   }
 
   static isClientConnected(): boolean {
-    return this.isConnected;
+    return this.isConnected && !this.fallbackMode;
+  }
+
+  /**
+   * Check if Redis is in fallback mode
+   */
+  static isFallbackMode(): boolean {
+    return this.fallbackMode;
+  }
+
+  /**
+   * Get Redis health status
+   */
+  static getHealthStatus(): {
+    connected: boolean;
+    fallbackMode: boolean;
+    lastHealthCheck: number;
+    reconnectAttempts: number;
+  } {
+    return {
+      connected: this.isConnected,
+      fallbackMode: this.fallbackMode,
+      lastHealthCheck: this.lastHealthCheck,
+      reconnectAttempts: this.reconnectAttempts
+    };
   }
 
   // Session management methods
@@ -235,11 +381,11 @@ export class RedisClient {
   }
 
   // Document synchronization methods (Pub/Sub)
-  static async publishDocumentUpdate(documentId: string, update: any): Promise<void> {
+  static async publishDocumentUpdate(documentId: string, update: any): Promise<{ success: boolean; fallback: boolean }> {
     try {
-      if (!this.isConnected) {
-        logger.debug('Document publish skipped - Redis not connected', { documentId });
-        return;
+      if (!this.isConnected || this.fallbackMode) {
+        logger.debug('Document publish using fallback - Redis not available', { documentId });
+        return { success: false, fallback: true };
       }
 
       const message = JSON.stringify({
@@ -250,20 +396,24 @@ export class RedisClient {
 
       await this.publisher.publish(`document:${documentId}`, message);
       logger.debug('Document update published', { documentId });
+      return { success: true, fallback: false };
     } catch (error) {
       logger.error('Error publishing document update', { 
         documentId, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      throw error;
+      
+      // Enable fallback mode on publish errors
+      this.handleConnectionLoss();
+      return { success: false, fallback: true };
     }
   }
 
-  static async subscribeToDocument(documentId: string, callback: (update: any) => void): Promise<void> {
+  static async subscribeToDocument(documentId: string, callback: (update: any) => void): Promise<{ success: boolean; fallback: boolean }> {
     try {
-      if (!this.isConnected) {
-        logger.debug('Document subscribe skipped - Redis not connected', { documentId });
-        return;
+      if (!this.isConnected || this.fallbackMode) {
+        logger.debug('Document subscribe using fallback - Redis not available', { documentId });
+        return { success: false, fallback: true };
       }
 
       await this.subscriber.subscribe(`document:${documentId}`, (message) => {
@@ -281,12 +431,16 @@ export class RedisClient {
       });
 
       logger.debug('Subscribed to document updates', { documentId });
+      return { success: true, fallback: false };
     } catch (error) {
       logger.error('Error subscribing to document', { 
         documentId, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      throw error;
+      
+      // Enable fallback mode on subscribe errors
+      this.handleConnectionLoss();
+      return { success: false, fallback: true };
     }
   }
 
@@ -366,14 +520,23 @@ export class RedisClient {
   // Connection health check
   static async healthCheck(): Promise<boolean> {
     try {
-      if (!this.isConnected) return false;
+      if (!this.isConnected || this.fallbackMode) return false;
       
       const response = await this.client.ping();
-      return response === 'PONG';
+      const isHealthy = response === 'PONG';
+      
+      if (isHealthy) {
+        this.lastHealthCheck = Date.now();
+      } else {
+        this.handleConnectionLoss();
+      }
+      
+      return isHealthy;
     } catch (error) {
       logger.error('Redis health check failed', { 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
+      this.handleConnectionLoss();
       return false;
     }
   }

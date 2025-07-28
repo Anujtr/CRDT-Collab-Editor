@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { JWTUtils } from '../utils/jwt';
-import { UserModel } from '../models/User';
+import { UserDatabaseModel } from '../models/UserDatabase';
 import { AuthTokenPayload, Permission, UserRole } from '../../../shared/src/types/auth';
 import { AUTH_ERRORS, ROLE_HIERARCHY } from '../../../shared/src/constants/auth';
 
@@ -29,7 +29,7 @@ export const authenticateToken = async (
     const decoded = JWTUtils.verifyToken(token);
     
     // Verify user still exists
-    const user = await UserModel.findById(decoded.userId);
+    const user = await UserDatabaseModel.findById(decoded.userId);
     if (!user) {
       res.status(401).json({
         success: false,
@@ -188,7 +188,7 @@ export const optionalAuth = async (
       const decoded = JWTUtils.verifyToken(token);
       
       // Verify user still exists
-      const user = await UserModel.findById(decoded.userId);
+      const user = await UserDatabaseModel.findById(decoded.userId);
       if (user) {
         req.user = decoded;
       }

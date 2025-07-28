@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { UserModel } from '../models/User';
+import { UserDatabaseModel } from '../models/UserDatabase';
 import { JWTUtils } from '../utils/jwt';
 import { LoginRequest, RegisterRequest, UserRole } from '../../../shared/src/types/auth';
 import { AUTH_ERRORS } from '../../../shared/src/constants/auth';
@@ -27,7 +27,7 @@ export class AuthController {
       }
 
       // Create user
-      const user = await UserModel.create({
+      const user = await UserDatabaseModel.create({
         username: username.trim(),
         email: email.trim().toLowerCase(),
         password,
@@ -96,7 +96,7 @@ export class AuthController {
       const { username, password }: LoginRequest = req.body;
 
       // Find user by username or email
-      const user = await UserModel.findByUsernameOrEmail(username.trim());
+      const user = await UserDatabaseModel.findByUsernameOrEmail(username.trim());
       
       if (!user) {
         res.status(401).json({
@@ -112,7 +112,7 @@ export class AuthController {
       }
 
       // Validate password
-      const isValidPassword = await UserModel.validatePassword(user, password);
+      const isValidPassword = await UserDatabaseModel.validatePassword(user, password);
       
       if (!isValidPassword) {
         res.status(401).json({
@@ -172,7 +172,7 @@ export class AuthController {
       }
 
       // Get fresh user data from database
-      const user = await UserModel.findById(req.user.userId);
+      const user = await UserDatabaseModel.findById(req.user.userId);
       
       if (!user) {
         res.status(404).json({
@@ -187,7 +187,7 @@ export class AuthController {
         return;
       }
 
-      const sanitizedUser = UserModel.sanitizeUser(user);
+      const sanitizedUser = UserDatabaseModel.sanitizeUser(user);
 
       res.status(200).json({
         success: true,
@@ -234,7 +234,7 @@ export class AuthController {
       }
 
       const decoded = JWTUtils.verifyRefreshToken(refreshToken);
-      const user = await UserModel.findById(decoded.userId);
+      const user = await UserDatabaseModel.findById(decoded.userId);
 
       if (!user) {
         res.status(404).json({
