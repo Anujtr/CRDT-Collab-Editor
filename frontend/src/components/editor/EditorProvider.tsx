@@ -3,6 +3,7 @@ import { Descendant, Editor } from 'slate';
 import { useParams } from 'react-router-dom';
 import { Document } from '../../types';
 import { useCollaborativeEditor } from '../../hooks/useCollaborativeEditor';
+import { useGlobalConnection } from '../../contexts/ConnectionContext';
 import { API_BASE_URL } from '../../utils/constants';
 import { storage } from '../../utils';
 
@@ -75,6 +76,9 @@ export function EditorProvider({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [enableAutoSave, setEnableAutoSave] = useState(true);
+  
+  // Get global connection context
+  const { setExternalConnectionState } = useGlobalConnection();
 
   // Collaborative editor hook
   const {
@@ -101,6 +105,11 @@ export function EditorProvider({
     },
     onSync: (synced) => {
       console.log('Sync status changed:', synced);
+    },
+    // Update global connection state with collaborative editor status
+    onGlobalConnectionUpdate: (updates) => {
+      console.log('EditorProvider: Updating global connection state:', updates);
+      setExternalConnectionState(updates);
     }
   });
 

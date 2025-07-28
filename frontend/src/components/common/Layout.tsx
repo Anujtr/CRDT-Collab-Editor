@@ -10,8 +10,9 @@ import {
   Sun,
   Users
 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useConnection } from '../../hooks/useConnection';
+import { useGlobalConnection } from '../../contexts/ConnectionContext';
 import { cn } from '../../utils';
 
 interface LayoutProps {
@@ -21,8 +22,12 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const { user, logout, isAuthenticated } = useAuth();
-  const { connectionState, connect } = useConnection();
+  const { user, logout } = useAuth();
+  const { connectionState } = useGlobalConnection();
+  const location = useLocation();
+  
+  // Check if we're on a document editing page
+  const isDocumentPage = location.pathname.startsWith('/document/');
 
   // Initialize theme from localStorage or system preference
   useEffect(() => {
@@ -45,12 +50,8 @@ export function Layout({ children }: LayoutProps) {
     await logout();
   };
 
-  // Auto-connect to WebSocket when user is authenticated
-  useEffect(() => {
-    if (isAuthenticated && connectionState.status === 'disconnected') {
-      connect();
-    }
-  }, [isAuthenticated, connectionState.status, connect]);
+  // Note: Connection is now managed by EditorProvider for document pages
+  // and will be handled globally via the ConnectionContext
 
   const navigation = [
     { name: 'Documents', href: '/', icon: FileText },
@@ -169,32 +170,34 @@ export function Layout({ children }: LayoutProps) {
           <div className="hidden lg:block" />
 
           <div className="flex items-center gap-3">
-            {/* Connection status */}
-            <div className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
-              {
-                'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800': connectionState.status === 'connected' || connectionState.status === 'authenticated',
-                'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border border-amber-200 dark:border-amber-800': connectionState.status === 'connecting',
-                'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 border border-red-200 dark:border-red-800': connectionState.status === 'disconnected' || connectionState.status === 'error',
-              }
-            )}>
-              {connectionState.status === 'connected' || connectionState.status === 'authenticated' ? (
-                <>
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-                  <span>{connectionState.status === 'authenticated' ? 'Online' : 'Connected'}</span>
-                </>
-              ) : connectionState.status === 'connecting' ? (
-                <>
-                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-2 h-2 bg-red-500 rounded-full" />
-                  <span>Offline</span>
-                </>
-              )}
-            </div>
+            {/* Connection status - only show on document pages */}
+            {isDocumentPage && (
+              <div className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
+                {
+                  'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800': connectionState.status === 'connected' || connectionState.status === 'authenticated',
+                  'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 border border-amber-200 dark:border-amber-800': connectionState.status === 'connecting',
+                  'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300 border border-red-200 dark:border-red-800': connectionState.status === 'disconnected' || connectionState.status === 'error',
+                }
+              )}>
+                {connectionState.status === 'connected' || connectionState.status === 'authenticated' ? (
+                  <>
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                    <span>Online</span>
+                  </>
+                ) : connectionState.status === 'connecting' ? (
+                  <>
+                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 bg-red-500 rounded-full" />
+                    <span>Offline</span>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Active users indicator (placeholder) */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">

@@ -52,6 +52,10 @@ export interface ConnectionState {
   lastConnected?: number;
   retryCount: number;
   error?: string;
+  lastDisconnectReason?: string;
+  lastConnectError?: string;
+  manualDisconnect?: boolean;
+  authenticatedAt?: number;
 }
 
 export interface EditorState {
