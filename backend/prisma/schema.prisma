@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String                 @id @default(uuid())
+  username         String                 @unique
+  email            String                 @unique
+  passwordHash     String                 @map("password_hash")
+  role             UserRole               @default(USER)
+  permissions      Json                   @default("[]")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  collaborations   DocumentCollaborator[]
+  createdSnapshots DocumentSnapshot[]     @relation("SnapshotCreator")
+  ownedDocuments   Document[]             @relation("DocumentOwner")
+  sessions         UserSession[]
+
+  @@map("users")
+}
+
+model Document {
+  id            String                 @id @default(uuid())
+  title         String
+  ownerId       String                 @map("owner_id")
+  isPublic      Boolean                @default(false) @map("is_public")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  lastActivity  DateTime               @default(now()) @map("last_activity")
+  version       Int                    @default(0)
+  collaborators DocumentCollaborator[]
+  snapshots     DocumentSnapshot[]
+  owner         User                   @relation("DocumentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model DocumentCollaborator {
+  id         String     @id @default(uuid())
+  documentId String     @map("document_id")
+  userId     String     @map("user_id")
+  permission Permission @default(DOCUMENT_WRITE)
+  joinedAt   DateTime   @default(now()) @map("joined_at")
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, userId])
+  @@map("document_collaborators")
+}
+
+model DocumentSnapshot {
+  id           String   @id @default(uuid())
+  documentId   String   @map("document_id")
+  snapshotData Bytes    @map("snapshot_data")
+  version      Int
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdById  String   @map("created_by_id")
+  createdBy    User     @relation("SnapshotCreator", fields: [createdById], references: [id])
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, version])
+  @@index([documentId, createdAt])
+  @@map("document_snapshots")
+}
+
+model UserSession {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  sessionToken String   @unique @map("session_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionToken])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+enum UserRole {
+  ADMIN   @map("admin")
+  EDITOR  @map("editor") 
+  VIEWER  @map("viewer")
+  USER    @map("user")
+
+  @@map("user_role")
+}
+
+enum Permission {
+  DOCUMENT_READ    @map("document:read")
+  DOCUMENT_WRITE   @map("document:write")
+  DOCUMENT_DELETE  @map("document:delete")
+  USER_MANAGE      @map("user:manage")
+  ADMIN_ACCESS     @map("admin:access")
+  SNAPSHOT_CREATE  @map("snapshot:create")
+  SNAPSHOT_RESTORE @map("snapshot:restore")
+
+  @@map("permission")
+}

@@ -1,6 +1,28 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:16.6-alpine3.21
+    container_name: crdt-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=crdt_collab_editor
+      - POSTGRES_USER=crdt_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-crdt_password_change_in_production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crdt-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crdt_user -d crdt_collab_editor"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # Redis Service
   redis:
     image: redis:7.4-alpine3.20
@@ -32,6 +54,7 @@ services:
       - PORT=8080
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - DATABASE_URL=postgresql://crdt_user:${POSTGRES_PASSWORD:-crdt_password_change_in_production}@postgres:5432/crdt_collab_editor
       - CLIENT_URL=http://localhost
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
       - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-15m}
@@ -47,6 +70,7 @@ services:
       - FEATURE_COLLABORATION=${FEATURE_COLLABORATION:-true}
     depends_on:
       - redis
+      - postgres
     networks:
       - crdt-network
     volumes:
@@ -131,6 +155,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
