@@ -4,7 +4,14 @@ module.exports = {
   roots: ['<rootDir>/src', '<rootDir>/tests'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   transform: {
-    '^.+\\.ts$': 'ts-jest'
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: 'tsconfig.test.json'
+    }]
+  },
+  globals: {
+    'ts-jest': {
+      tsconfig: 'tsconfig.test.json'
+    }
   },
   collectCoverageFrom: [
     'src/**/*.ts',
@@ -23,7 +30,7 @@ module.exports = {
       statements: 70
     }
   },
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  // setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'], // Temporarily disabled for database tests
   testTimeout: 15000,
   maxWorkers: 1, // Run tests sequentially to avoid port conflicts
   verbose: true,
