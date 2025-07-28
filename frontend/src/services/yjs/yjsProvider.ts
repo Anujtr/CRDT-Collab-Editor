@@ -2,38 +2,17 @@ import * as Y from 'yjs';
 import { io, Socket } from 'socket.io-client';
 import { storage } from '../../utils';
 
-// Utility function to wait until a condition is met with detailed logging
-const waitUntil = (
-  condition: () => boolean, 
-  timeout: number = 5000, 
-  description: string = 'condition'
-): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    let attempts = 0;
-    
-    const check = () => {
-      attempts++;
-      const elapsed = Date.now() - startTime;
-      
-      console.log(`waitUntil: Checking ${description} (attempt ${attempts}, elapsed: ${elapsed}ms)`);
-      
-      if (condition()) {
-        console.log(`waitUntil: ${description} satisfied after ${elapsed}ms`);
-        resolve();
-      } else if (elapsed > timeout) {
-        console.error(`waitUntil: ${description} timeout after ${timeout}ms (${attempts} attempts)`);
-        reject(new Error(`waitUntil timeout after ${timeout}ms checking: ${description}`));
-      } else {
-        // Exponential backoff with max 200ms
-        const delay = Math.min(50 + Math.floor(attempts * 10), 200);
-        setTimeout(check, delay);
-      }
-    };
-    
-    check();
-  });
-};
+// Connection states for better state management
+enum ConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  AUTHENTICATING = 'authenticating',
+  AUTHENTICATED = 'authenticated',
+  JOINING_DOCUMENT = 'joining_document',
+  READY = 'ready',
+  ERROR = 'error'
+}
 
 interface YjsProviderOptions {
   documentId: string;
@@ -47,10 +26,17 @@ export class YjsProvider {
   private doc: Y.Doc;
   private documentId: string;
   private status: 'connecting' | 'connected' | 'disconnected' | 'error' = 'disconnected';
-  private authStatus: 'pending' | 'authenticated' | 'failed' = 'pending';
+  private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
   private options: YjsProviderOptions;
   private updateHandler: ((update: Uint8Array, origin: any) => void) | null = null;
   private isSynced = false;
+  private connectionRetries = 0;
+  private maxRetries = 3;
+  private hasLocalChanges = false;
+  private initialStateApplied = false;
+  private isConnecting = false;
+  private isDisconnecting = false;
+  private connectionDebounceTimeout: NodeJS.Timeout | null = null;
 
   constructor(doc: Y.Doc, options: YjsProviderOptions) {
     this.doc = doc;
@@ -66,6 +52,12 @@ export class YjsProvider {
       // Don't send updates back to the server if they originated from the server
       if (origin === this) {
         return;
+      }
+
+      // Track that we have local changes
+      if (!this.initialStateApplied) {
+        this.hasLocalChanges = true;
+        console.log('YjsProvider: Local changes detected before initial state');
       }
 
       // Send update to server via WebSocket
@@ -84,12 +76,29 @@ export class YjsProvider {
   }
 
   async connect(): Promise<void> {
-    if (this.socket) {
+    // Prevent multiple simultaneous connections
+    if (this.isConnecting || this.socket) {
+      console.log('YjsProvider: Connection already in progress or established');
       return;
     }
 
+    // Prevent connection during disconnection
+    if (this.isDisconnecting) {
+      console.log('YjsProvider: Cannot connect while disconnecting');
+      return;
+    }
+
+    // Clear any pending connection debounce
+    if (this.connectionDebounceTimeout) {
+      clearTimeout(this.connectionDebounceTimeout);
+      this.connectionDebounceTimeout = null;
+    }
+
+    this.isConnecting = true;
+
     try {
       this.setStatus('connecting');
+      this.connectionState = ConnectionState.CONNECTING;
 
       // Get authentication token
       const token = storage.get('crdt-auth-token');
@@ -123,27 +132,49 @@ export class YjsProvider {
       console.log('YjsProvider: Socket created, setting up handlers...');
       this.setupSocketHandlers(socket);
       
-      // Add delay before connecting to ensure backend is ready
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Connect first, then authenticate (use local reference in case this.socket was cleared)
-      console.log('YjsProvider: Connecting to socket...');
-      console.log('YjsProvider: Socket status:', socket ? 'exists' : 'null');
-      if (!socket) {
-        throw new Error('Socket is null before connect');
-      }
+      // Connect socket
       socket.connect();
+      console.log('YjsProvider: Socket connection initiated');
 
-      // Wait for connection, then authenticate
-      await this.waitForConnection(socket);
-      console.log('YjsProvider: Connection established, authenticating...');
-      await this.authenticateSocket(token, socket);
+      // Wait for connection to be established or fail
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Connection timeout'));
+        }, 15000); // 15 second timeout
 
-      this.setStatus('connected');
+        const onConnect = () => {
+          clearTimeout(timeout);
+          socket.off('connect', onConnect);
+          socket.off('connect_error', onError);
+          resolve();
+        };
+
+        const onError = (error: any) => {
+          clearTimeout(timeout);
+          socket.off('connect', onConnect);
+          socket.off('connect_error', onError);
+          reject(error);
+        };
+
+        socket.on('connect', onConnect);
+        socket.on('connect_error', onError);
+      });
+
     } catch (error) {
       this.setStatus('error');
+      this.connectionState = ConnectionState.ERROR;
       console.error('YjsProvider connection error:', error);
+      
+      // Clean up on error
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
+      }
+      
       throw error;
+    } finally {
+      this.isConnecting = false;
     }
   }
 
@@ -153,95 +184,85 @@ export class YjsProvider {
 
     socketToUse.on('connect', () => {
       console.log('YjsProvider: Socket connected');
+      this.connectionState = ConnectionState.CONNECTED;
+      this.connectionRetries = 0;
+      
+      // Get token and authenticate immediately
+      const token = storage.get('crdt-auth-token');
+      if (token) {
+        this.connectionState = ConnectionState.AUTHENTICATING;
+        socketToUse.emit('authenticate', { token });
+      } else {
+        this.setStatus('error');
+        console.error('YjsProvider: No authentication token available');
+      }
     });
 
     socketToUse.on('disconnect', (reason: any) => {
       console.log('YjsProvider: Socket disconnected:', reason);
-      this.authStatus = 'pending'; // Reset auth status on disconnect
+      this.connectionState = ConnectionState.DISCONNECTED;
       this.setStatus('disconnected');
       this.isSynced = false;
       this.options.onSync?.(false);
-      // Don't set socket to null here - only do it in explicit disconnect()
+      
+      // Auto-reconnect unless it was an explicit disconnect
+      if (reason !== 'io client disconnect' && this.connectionRetries < this.maxRetries) {
+        this.connectionRetries++;
+        console.log(`YjsProvider: Auto-reconnecting (attempt ${this.connectionRetries}/${this.maxRetries})`);
+        setTimeout(() => {
+          if (this.socket === socketToUse) { // Only reconnect if this is still the current socket
+            this.reconnect();
+          }
+        }, 1000 * this.connectionRetries);
+      }
     });
 
     socketToUse.on('connect_error', (error: any) => {
       console.error('YjsProvider: Socket connection error:', error);
+      this.connectionState = ConnectionState.ERROR;
       this.setStatus('error');
+      
+      // Auto-retry connection errors
+      if (this.connectionRetries < this.maxRetries) {
+        this.connectionRetries++;
+        console.log(`YjsProvider: Retrying after connection error (attempt ${this.connectionRetries}/${this.maxRetries})`);
+        setTimeout(() => {
+          this.reconnect();
+        }, 2000 * this.connectionRetries);
+      }
     });
 
-    socketToUse.on('authenticated', async () => {
+    socketToUse.on('authenticated', () => {
       console.log('YjsProvider: Socket authenticated');
-      this.authStatus = 'authenticated';
+      this.connectionState = ConnectionState.AUTHENTICATED;
+      this.setStatus('connected');
       
-      try {
-        // Wait for socket to be fully ready before joining document
-        console.log('YjsProvider: Waiting for socket readiness...');
-        console.log('YjsProvider: Current socket state:', {
-          connected: socketToUse?.connected,
-          disconnected: socketToUse?.disconnected,
-          id: socketToUse?.id,
-          active: (socketToUse as any)?.active
-        });
-        
-        await waitUntil(() => {
-          if (!socketToUse) return false;
-          
-          const isConnected = socketToUse.connected === true;
-          const isNotDisconnected = socketToUse.disconnected !== true;
-          const hasId = !!socketToUse.id;
-          const isActive = (socketToUse as any).active !== false;
-          
-          console.log('YjsProvider: Socket readiness check:', {
-            connected: isConnected,
-            notDisconnected: isNotDisconnected,
-            hasId: hasId,
-            active: isActive,
-            overall: isConnected && isNotDisconnected && hasId && isActive
-          });
-          
-          return isConnected && isNotDisconnected && hasId && isActive;
-        }, 5000, 'socket fully ready');
-        
-        // Add small delay to ensure transport is fully ready
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        // Test if socket can emit before attempting join
-        try {
-          console.log('YjsProvider: Testing socket emit capability...');
-          if (!socketToUse) {
-            throw new Error('Socket is null during emit test');
-          }
-          socketToUse.emit('ping'); // Test emit
-          console.log('YjsProvider: Socket emit test successful');
-        } catch (emitError) {
-          console.error('YjsProvider: Socket emit test failed:', emitError);
-          throw new Error(`Socket not ready for emit: ${emitError}`);
-        }
-        
-        console.log('YjsProvider: Socket ready, joining document...');
-        await this.joinDocument(socketToUse);
-        
-        console.log('YjsProvider: Successfully joined document');
-      } catch (error) {
-        console.error('YjsProvider: Join document failed after auth:', error);
-        this.setStatus('error');
-      }
+      // Join document immediately after authentication
+      this.connectionState = ConnectionState.JOINING_DOCUMENT;
+      socketToUse.emit('join-document', { documentId: this.documentId });
     });
 
     socketToUse.on('auth-error', (error: any) => {
       console.error('YjsProvider: Authentication error:', error);
-      this.authStatus = 'failed';
+      this.connectionState = ConnectionState.ERROR;
       this.setStatus('error');
+      
+      // Retry connection if we haven't exceeded max retries
+      if (this.connectionRetries < this.maxRetries) {
+        this.connectionRetries++;
+        console.log(`YjsProvider: Retrying connection (attempt ${this.connectionRetries}/${this.maxRetries})`);
+        setTimeout(() => {
+          this.reconnect();
+        }, 2000 * this.connectionRetries); // Exponential backoff
+      }
     });
 
     socketToUse.on('document-joined', (data: any) => {
       console.log('Joined document:', data);
+      this.connectionState = ConnectionState.READY;
       
-      // Apply initial document state if provided
-      if (data.documentState && data.documentState.length > 0) {
-        const stateUpdate = new Uint8Array(data.documentState);
-        Y.applyUpdate(this.doc, stateUpdate, this);
-      }
+      // Handle initial document state with conflict resolution
+      this.handleInitialDocumentState(data);
 
       this.isSynced = true;
       this.options.onSync?.(true);
@@ -280,143 +301,31 @@ export class YjsProvider {
     });
   }
 
-  private async waitForConnection(socket?: any): Promise<void> {
-    const socketToUse = socket || this.socket;
-    return new Promise((resolve, reject) => {
-      if (!socketToUse) {
-        reject(new Error('Socket not initialized'));
-        return;
-      }
-
-      if (socketToUse.connected) {
-        resolve();
-        return;
-      }
-
-      const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'));
-      }, 10000);
-
-      socketToUse.once('connect', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      socketToUse.once('connect_error', (error: any) => {
-        clearTimeout(timeout);
-        reject(new Error(error.message || 'Connection failed'));
-      });
-    });
-  }
 
 
-  private async authenticateSocket(token: string, socket?: any): Promise<void> {
-    const socketToUse = socket || this.socket;
-    return new Promise((resolve, reject) => {
-      if (!socketToUse) {
-        reject(new Error('Socket not connected'));
-        return;
-      }
 
-      const timeout = setTimeout(() => {
-        reject(new Error('Authentication timeout'));
-      }, 10000);
-
-      socketToUse.once('authenticated', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      socketToUse.once('auth-error', (error: any) => {
-        clearTimeout(timeout);
-        reject(new Error(error.message || 'Authentication failed'));
-      });
-
-      socketToUse.emit('authenticate', { token });
-    });
-  }
-
-  private async joinDocument(socket?: any): Promise<void> {
-    const socketToUse = socket || this.socket;
-    return new Promise((resolve, reject) => {
-      console.log('YjsProvider: joinDocument called');
-      console.log('YjsProvider: Detailed socket state:', {
-        exists: !!socketToUse,
-        connected: socketToUse?.connected,
-        disconnected: socketToUse?.disconnected,
-        id: socketToUse?.id,
-        active: (socketToUse as any)?.active,
-        authStatus: this.authStatus,
-        documentId: this.documentId
-      });
-
-      if (!socketToUse) {
-        reject(new Error('Socket not connected'));
-        return;
-      }
-
-      if (!socketToUse.connected) {
-        reject(new Error(`Socket not in connected state. Current state: connected=${socketToUse.connected}, disconnected=${socketToUse.disconnected}`));
-        return;
-      }
-
-      if (this.authStatus !== 'authenticated') {
-        reject(new Error(`Socket not authenticated. Auth status: ${this.authStatus}`));
-        return;
-      }
-
-      // Double-check socket readiness
-      try {
-        // Test if socket can actually emit by checking its internal state
-        if (!socketToUse.emit) {
-          reject(new Error('Socket emit method not available'));
-          return;
-        }
-        
-        // Check if socket has been destroyed or is in an invalid state
-        if ((socketToUse as any).destroyed) {
-          reject(new Error('Socket has been destroyed'));
-          return;
-        }
-      } catch (e) {
-        reject(new Error(`Socket not ready for operations: ${e}`));
-        return;
-      }
-
-      const timeout = setTimeout(() => {
-        console.error('YjsProvider: Join document timeout - socket state at timeout:', {
-          connected: socketToUse?.connected,
-          disconnected: socketToUse?.disconnected,
-          id: socketToUse?.id
-        });
-        reject(new Error('Join document timeout'));
-      }, 10000);
-
-      const onDocumentJoined = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-
-      const onError = (error: any) => {
-        clearTimeout(timeout);
-        reject(new Error(error.message || 'Failed to join document'));
-      };
-
-      socketToUse.once('document-joined', onDocumentJoined);
-      socketToUse.once('error', onError);
-
-      console.log('YjsProvider: Emitting join-document for:', this.documentId);
-      try {
-        socketToUse.emit('join-document', { 
-          documentId: this.documentId 
-        });
-        console.log('YjsProvider: join-document emit completed successfully');
-      } catch (emitError) {
-        clearTimeout(timeout);
-        console.error('YjsProvider: Socket emit failed:', emitError);
-        reject(new Error(`Socket emit failed: ${emitError}`));
-      }
-    });
+  // Reconnect method for handling connection failures
+  private async reconnect(): Promise<void> {
+    console.log('YjsProvider: Attempting to reconnect...');
+    
+    // Clean up existing socket
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+    }
+    
+    this.socket = null;
+    this.connectionState = ConnectionState.DISCONNECTED;
+    this.isSynced = false;
+    this.options.onSync?.(false);
+    
+    // Attempt to reconnect
+    try {
+      await this.connect();
+    } catch (error) {
+      console.error('YjsProvider: Reconnection failed:', error);
+      this.setStatus('error');
+    }
   }
 
   private setStatus(status: 'connecting' | 'connected' | 'disconnected' | 'error'): void {
@@ -433,28 +342,64 @@ export class YjsProvider {
   }
 
   async disconnect(): Promise<void> {
-    if (this.socket) {
-      // Leave document room
-      this.socket.emit('leave-document', { 
-        documentId: this.documentId 
-      });
-
-      // Disconnect socket
-      this.socket.disconnect();
-      this.socket = null;
+    console.log('YjsProvider: Explicit disconnect requested');
+    
+    // Prevent disconnect during connection
+    if (this.isConnecting) {
+      console.log('YjsProvider: Cannot disconnect while connecting, waiting...');
+      // Wait a moment for connection to complete or fail
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
-    // Remove document update handler
-    if (this.updateHandler) {
-      this.doc.off('update', this.updateHandler);
-      this.updateHandler = null;
+    this.isDisconnecting = true;
+    this.connectionRetries = this.maxRetries; // Prevent auto-reconnection
+    
+    // Clear any pending connection attempts
+    if (this.connectionDebounceTimeout) {
+      clearTimeout(this.connectionDebounceTimeout);
+      this.connectionDebounceTimeout = null;
     }
 
-    // Reset authentication status
-    this.authStatus = 'pending';
-    this.setStatus('disconnected');
-    this.isSynced = false;
-    this.options.onSync?.(false);
+    try {
+      if (this.socket) {
+        // Leave document room gracefully
+        if (this.socket.connected) {
+          this.socket.emit('leave-document', { 
+            documentId: this.documentId 
+          });
+          
+          // Give the server a moment to process the leave request
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Remove all listeners to prevent memory leaks
+        this.socket.removeAllListeners();
+        
+        // Disconnect socket
+        this.socket.disconnect();
+        this.socket = null;
+      }
+
+      // Remove document update handler
+      if (this.updateHandler) {
+        this.doc.off('update', this.updateHandler);
+        this.updateHandler = null;
+      }
+
+      // Reset state
+      this.connectionState = ConnectionState.DISCONNECTED;
+      this.setStatus('disconnected');
+      this.isSynced = false;
+      this.hasLocalChanges = false;
+      this.initialStateApplied = false;
+      this.options.onSync?.(false);
+      
+      console.log('YjsProvider: Disconnect completed');
+    } catch (error) {
+      console.error('YjsProvider: Error during disconnect:', error);
+    } finally {
+      this.isDisconnecting = false;
+    }
   }
 
   // Send cursor/selection updates
@@ -467,18 +412,128 @@ export class YjsProvider {
     }
   }
 
+  /**
+   * Handle initial document state with conflict resolution
+   */
+  private handleInitialDocumentState(data: any): void {
+    try {
+      if (!data.documentState || data.documentState.length === 0) {
+        console.log('YjsProvider: No initial document state to apply');
+        this.initialStateApplied = true;
+        return;
+      }
+
+      const remoteState = new Uint8Array(data.documentState);
+      
+      // Check if we have local changes that might conflict
+      if (this.hasLocalChanges) {
+        console.log('YjsProvider: Handling document state conflict');
+        this.handleStateConflict(remoteState);
+      } else {
+        console.log('YjsProvider: Applying initial document state (no conflicts)');
+        Y.applyUpdate(this.doc, remoteState, this);
+      }
+      
+      this.initialStateApplied = true;
+    } catch (error) {
+      console.error('YjsProvider: Error handling initial document state:', error);
+      this.initialStateApplied = true; // Mark as applied to prevent retry loops
+    }
+  }
+
+  /**
+   * Handle state conflicts between local and remote changes
+   */
+  private handleStateConflict(remoteState: Uint8Array): void {
+    try {
+      // Get current local state
+      const localState = Y.encodeStateAsUpdate(this.doc);
+      
+      // Create a temporary document to see what the remote state contains
+      const remoteDoc = new Y.Doc();
+      Y.applyUpdate(remoteDoc, remoteState);
+      
+      // Check if documents are identical
+      const localVector = Y.encodeStateVector(this.doc);
+      const remoteVector = Y.encodeStateVector(remoteDoc);
+      
+      if (this.stateVectorsEqual(localVector, remoteVector)) {
+        console.log('YjsProvider: Documents are already in sync');
+        return;
+      }
+      
+      console.log('YjsProvider: Merging conflicting document states');
+      
+      // Apply remote state - Yjs CRDT will handle the merging
+      Y.applyUpdate(this.doc, remoteState, this);
+      
+      // Notify about the merge
+      this.notifyStateConflictResolved();
+      
+    } catch (error) {
+      console.error('YjsProvider: Error handling state conflict:', error);
+      // Fallback: apply remote state anyway
+      try {
+        Y.applyUpdate(this.doc, remoteState, this);
+      } catch (fallbackError) {
+        console.error('YjsProvider: Fallback state application failed:', fallbackError);
+      }
+    }
+  }
+
+  /**
+   * Check if two state vectors are equal
+   */
+  private stateVectorsEqual(vector1: Uint8Array, vector2: Uint8Array): boolean {
+    if (vector1.length !== vector2.length) {
+      return false;
+    }
+    
+    for (let i = 0; i < vector1.length; i++) {
+      if (vector1[i] !== vector2[i]) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * Notify about state conflict resolution
+   */
+  private notifyStateConflictResolved(): void {
+    console.log('YjsProvider: Document state conflict resolved through CRDT merge');
+    
+    // Could emit a custom event or call a callback if needed
+    if (this.options.onStatusChange) {
+      // For now, we don't have a specific status for conflict resolution
+      // but we could add one if needed
+    }
+  }
+
+  /**
+   * Check if there are unsaved local changes
+   */
+  hasUnsavedChanges(): boolean {
+    return this.hasLocalChanges && !this.initialStateApplied;
+  }
+
   // Get document statistics
   getDocumentInfo(): {
     documentId: string;
     status: string;
     isSynced: boolean;
     clientId: number;
+    hasLocalChanges: boolean;
+    initialStateApplied: boolean;
   } {
     return {
       documentId: this.documentId,
       status: this.status,
       isSynced: this.isSynced,
-      clientId: this.doc.clientID
+      clientId: this.doc.clientID,
+      hasLocalChanges: this.hasLocalChanges,
+      initialStateApplied: this.initialStateApplied
     };
   }
 }

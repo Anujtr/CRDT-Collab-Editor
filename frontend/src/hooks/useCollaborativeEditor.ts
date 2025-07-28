@@ -4,7 +4,7 @@ import { withReact, ReactEditor } from 'slate-react';
 import { withHistory } from 'slate-history';
 import * as Y from 'yjs';
 import { createYjsProvider, YjsProvider } from '../services/yjs/yjsProvider';
-import { connectSlateWithYjs, SlateYjsBinding } from '../services/yjs/slateBinding';
+import { connectSlateWithYjs, SimpleSlateYjsBinding } from '../services/yjs/simpleSlateBinding';
 import { withCustomPlugins } from '../components/editor/plugins/withCustomPlugins';
 
 interface UseCollaborativeEditorOptions {
@@ -13,6 +13,7 @@ interface UseCollaborativeEditorOptions {
   onSync?: (isSynced: boolean) => void;
   onCollaboratorJoin?: (user: any) => void;
   onCollaboratorLeave?: (user: any) => void;
+  onGlobalConnectionUpdate?: (updates: { status: 'connecting' | 'connected' | 'authenticated' | 'disconnected' | 'error'; [key: string]: any }) => void;
   readOnly?: boolean;
 }
 
@@ -46,7 +47,7 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
   // Refs to store instances
   const editorRef = useRef<Editor | null>(null);
   const providerRef = useRef<YjsProvider | null>(null);
-  const bindingRef = useRef<SlateYjsBinding | null>(null);
+  const bindingRef = useRef<SimpleSlateYjsBinding | null>(null);
   const docRef = useRef<Y.Doc | null>(null);
 
   // Create editor instance (only once)
@@ -64,20 +65,59 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
   // Initialize collaborative editor
   const connect = useCallback(async () => {
     if (providerRef.current) {
+      console.log('useCollaborativeEditor: Already connected, skipping');
       return; // Already connected
+    }
+
+    if (isLoading) {
+      console.log('useCollaborativeEditor: Connection already in progress, skipping');
+      return; // Connection already in progress
     }
 
     try {
       setIsLoading(true);
       setError(null);
+      console.log('useCollaborativeEditor: Starting connection...');
 
       // Create Yjs provider
       const { doc, provider } = createYjsProvider(options.documentId, {
         onStatusChange: (newStatus) => {
+          console.log('useCollaborativeEditor: Status changed to:', newStatus);
           setStatus(newStatus);
           options.onStatusChange?.(newStatus);
+          
+          // Update global connection state if callback provided
+          if (options.onGlobalConnectionUpdate) {
+            let globalStatus: 'connecting' | 'connected' | 'authenticated' | 'disconnected' | 'error';
+            
+            // Map Yjs provider status to global connection status
+            switch (newStatus) {
+              case 'connecting':
+                globalStatus = 'connecting';
+                break;
+              case 'connected':
+                globalStatus = 'authenticated'; // When Yjs connects, it's fully authenticated
+                break;
+              case 'disconnected':
+                globalStatus = 'disconnected';
+                break;
+              case 'error':
+                globalStatus = 'error';
+                break;
+              default:
+                globalStatus = 'disconnected';
+            }
+            
+            options.onGlobalConnectionUpdate({
+              status: globalStatus,
+              lastConnected: newStatus === 'connected' ? Date.now() : undefined,
+              authenticatedAt: newStatus === 'connected' ? Date.now() : undefined,
+              error: newStatus === 'error' ? 'Collaborative editing connection failed' : undefined
+            });
+          }
         },
         onSync: (synced) => {
+          console.log('useCollaborativeEditor: Sync status changed to:', synced);
           setIsSynced(synced);
           options.onSync?.(synced);
         }
@@ -87,65 +127,98 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
       docRef.current = doc;
       providerRef.current = provider;
 
-      // Connect to WebSocket
-      await provider.connect();
+      // Connect to WebSocket with timeout
+      console.log('useCollaborativeEditor: Connecting to WebSocket...');
+      await Promise.race([
+        provider.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection timeout')), 30000)
+        )
+      ]);
 
-      // Create Slate-Yjs binding
+      // Create simplified Slate-Yjs binding
+      console.log('useCollaborativeEditor: Creating Slate-Yjs binding...');
       const binding = connectSlateWithYjs(editor, doc, 'content');
       bindingRef.current = binding;
 
-      // Get the shared text content
-      const yText = doc.getText('content');
-      
-      // Set up text observer for Slate updates
-      const updateSlateContent = () => {
-        try {
-          const text = yText.toString();
-          if (text) {
-            // Convert plain text to Slate value
-            const newValue: Descendant[] = text.split('\n').map(line => ({
-              type: 'paragraph',
-              children: [{ text: line }]
-            }));
-            setValue(newValue);
-          }
-        } catch (err) {
-          console.error('Error updating Slate content:', err);
-        }
+      // Set initial value from the editor after binding is established
+      setValue(editor.children);
+
+      // Set up a listener to keep our local value state in sync with editor changes
+      const syncValueState = () => {
+        const currentValue = editor.children;
+        setValue(currentValue);
       };
 
-      // Initial content load
-      updateSlateContent();
+      // Listen for editor changes to keep value state in sync
+      // This is a simple approach - in production you might want more sophisticated tracking
+      const syncInterval = setInterval(syncValueState, 100);
 
-      // Listen for document updates
-      yText.observe(updateSlateContent);
+      // Store the interval ID for cleanup
+      (bindingRef.current as any)._syncInterval = syncInterval;
+
+      console.log('useCollaborativeEditor: Connection completed successfully');
 
     } catch (err) {
+      console.error('useCollaborativeEditor: Connection failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to connect');
       setStatus('error');
+      
+      // Clean up on error
+      if (providerRef.current) {
+        try {
+          await providerRef.current.disconnect();
+        } catch (disconnectError) {
+          console.error('Error cleaning up after connection failure:', disconnectError);
+        }
+        providerRef.current = null;
+      }
+      
+      if (docRef.current) {
+        docRef.current.destroy();
+        docRef.current = null;
+      }
+      
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [options, editor]);
+  }, [options, editor, isLoading]);
 
   // Disconnect from collaborative editing
   const disconnect = useCallback(async () => {
+    console.log('useCollaborativeEditor: Starting disconnect...');
+    
     try {
-      // Clean up binding
+      // Clean up binding first
       if (bindingRef.current) {
+        console.log('useCollaborativeEditor: Destroying binding...');
+        
+        // Clean up sync interval if it exists
+        const syncInterval = (bindingRef.current as any)._syncInterval;
+        if (syncInterval) {
+          clearInterval(syncInterval);
+        }
+        
         bindingRef.current.destroy();
         bindingRef.current = null;
       }
 
       // Disconnect provider
       if (providerRef.current) {
+        console.log('useCollaborativeEditor: Disconnecting provider...');
         await providerRef.current.disconnect();
         providerRef.current = null;
       }
 
-      // Clean up document
+      // Clean up document last
       if (docRef.current) {
+        console.log('useCollaborativeEditor: Destroying document...');
         docRef.current.destroy();
         docRef.current = null;
       }
@@ -154,8 +227,10 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
       setIsSynced(false);
       setCollaborators([]);
       setError(null);
+      
+      console.log('useCollaborativeEditor: Disconnect completed');
     } catch (err) {
-      console.error('Error disconnecting:', err);
+      console.error('useCollaborativeEditor: Error during disconnect:', err);
     }
   }, []);
 
@@ -172,27 +247,18 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
     }
   }, [status]);
 
-  // Custom setValue that works with Yjs
+  // Custom setValue that works with the simplified binding
   const setValueWrapper = useCallback((newValue: Descendant[]) => {
-    if (bindingRef.current && docRef.current) {
-      try {
-        // Convert Slate value to plain text
-        const text = newValue.map(node => {
-          if ('children' in node) {
-            return node.children.map((child: any) => child.text || '').join('');
-          }
-          return '';
-        }).join('\n');
-
-        // Update Yjs text
-        const yText = docRef.current.getText('content');
-        yText.delete(0, yText.length);
-        yText.insert(0, text);
-      } catch (err) {
-        console.error('Error setting value:', err);
-      }
+    try {
+      // The simplified binding will handle syncing to Yjs automatically
+      // Just update the local state
+      setValue(newValue);
+      
+      // If we have a binding, let it handle the sync
+      // No need to manually manipulate Yjs here
+    } catch (err) {
+      console.error('Error setting value:', err);
     }
-    setValue(newValue);
   }, []);
 
   // Handle selection changes for cursor sharing
@@ -218,19 +284,40 @@ export function useCollaborativeEditor(options: UseCollaborativeEditorOptions): 
     };
   }, [editor, status, sendCursorUpdate]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount - handle React StrictMode
   useEffect(() => {
     return () => {
-      disconnect();
+      // Use a small delay to handle React StrictMode double-mounting
+      const cleanup = async () => {
+        // Wait a tick to see if component remounts (React StrictMode)
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        // Only disconnect if we're still unmounted
+        if (!providerRef.current) {
+          return; // Already cleaned up
+        }
+        
+        console.log('useCollaborativeEditor: Component unmounting, cleaning up...');
+        await disconnect();
+      };
+      
+      cleanup().catch(err => {
+        console.error('Error during cleanup:', err);
+      });
     };
   }, [disconnect]);
 
-  // Auto-connect when component mounts
+  // Auto-connect when component mounts (with debouncing)
   useEffect(() => {
-    if (options.documentId && status === 'disconnected' && !isLoading) {
-      connect().catch(err => {
-        console.error('Auto-connect failed:', err);
-      });
+    if (options.documentId && status === 'disconnected' && !isLoading && !providerRef.current) {
+      // Add a small delay to handle rapid mount/unmount cycles
+      const connectTimeout = setTimeout(() => {
+        connect().catch(err => {
+          console.error('Auto-connect failed:', err);
+        });
+      }, 100);
+      
+      return () => clearTimeout(connectTimeout);
     }
   }, [options.documentId, status, isLoading, connect]);
 
