@@ -5,13 +5,15 @@ import { Document } from '../../types';
 import { useCollaborativeEditor } from '../../hooks/useCollaborativeEditor';
 import { useGlobalConnection } from '../../contexts/ConnectionContext';
 import { API_BASE_URL } from '../../utils/constants';
-import { storage } from '../../utils';
+import { getAuthToken } from '../../utils';
 
 interface EditorContextValue {
   // Document state
   document: Document | null;
   isLoading: boolean;
   error: string | null;
+  hasWriteAccess: boolean;
+  isReadOnly: boolean;
   
   // Editor state
   editor: Editor;
@@ -70,6 +72,9 @@ export function EditorProvider({
   const [document, setDocument] = useState<Document | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasWriteAccess, setHasWriteAccess] = useState(true);
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [accessLevelKnown, setAccessLevelKnown] = useState(false);
   
   // Additional editor state
   const [documentTitle, setDocumentTitle] = useState('Untitled Document');
@@ -80,6 +85,9 @@ export function EditorProvider({
   // Get global connection context
   const { setExternalConnectionState } = useGlobalConnection();
 
+  // Only initialize collaborative editor after we know the access level
+  const shouldUseCollaborativeEditor = accessLevelKnown && documentId;
+  
   // Collaborative editor hook
   const {
     editor,
@@ -94,11 +102,18 @@ export function EditorProvider({
     setValue: setEditorValue,
     reconnect
   } = useCollaborativeEditor({
-    documentId: documentId || '',
+    documentId: shouldUseCollaborativeEditor ? documentId : '',
+    readOnly: isReadOnly,
     onStatusChange: (status) => {
       console.log('Connection status changed:', status);
       if (status === 'error') {
-        setError('Connection error - working offline');
+        // Only show connection error if user has write access
+        // Read-only users can view documents without real-time collaboration
+        if (hasWriteAccess) {
+          setError('Connection error - working offline');
+        } else {
+          console.log('Read-only user - ignoring connection error');
+        }
       } else {
         setError(null);
       }
@@ -115,9 +130,13 @@ export function EditorProvider({
 
   // Handle editor value changes
   const handleEditorValueChange = useCallback((value: Descendant[]) => {
+    // Only allow changes if user has write access
+    if (!hasWriteAccess) {
+      return;
+    }
     setEditorValue(value);
     setHasUnsavedChanges(true);
-  }, [setEditorValue]);
+  }, [setEditorValue, hasWriteAccess]);
 
   // Load document from API
   const loadDocument = useCallback(async (docId: string) => {
@@ -127,7 +146,7 @@ export function EditorProvider({
     setError(null);
     
     try {
-      const token = storage.get('crdt-auth-token');
+      const token = getAuthToken();
       if (!token) {
         throw new Error('Not authenticated');
       }
@@ -146,10 +165,25 @@ export function EditorProvider({
       const result = await response.json();
       const documentData = result.data;
       
-      setDocument(documentData.metadata);
+      // Set write access state
+      const writeAccess = documentData.hasWriteAccess ?? true;
+      setHasWriteAccess(writeAccess);
+      setIsReadOnly(!writeAccess);
+      setAccessLevelKnown(true);
+      
+      // Create document object with write access info
+      const documentWithAccess = {
+        ...documentData.metadata,
+        hasWriteAccess: writeAccess
+      };
+      
+      setDocument(documentWithAccess);
       setDocumentTitle(documentData.metadata.title);
       setHasUnsavedChanges(false);
       setLastSaved(new Date(documentData.metadata.updatedAt));
+      
+      // Clear any existing errors since document loaded successfully
+      setError(null);
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -160,12 +194,12 @@ export function EditorProvider({
 
   // Save document metadata (content is auto-saved via CRDT)
   const saveDocument = useCallback(async () => {
-    if (!document) return;
+    if (!document || !hasWriteAccess) return;
     
     try {
       setError(null);
       
-      const token = storage.get('crdt-auth-token');
+      const token = getAuthToken();
       if (!token) {
         throw new Error('Not authenticated');
       }
@@ -197,9 +231,18 @@ export function EditorProvider({
     }
   }, [document, documentTitle]);
 
+  // Handle document title changes (only for users with write access)
+  const handleDocumentTitleChange = useCallback((newTitle: string) => {
+    if (!hasWriteAccess) {
+      return;
+    }
+    setDocumentTitle(newTitle);
+    setHasUnsavedChanges(true);
+  }, [hasWriteAccess]);
+
   // Auto-save effect
   useEffect(() => {
-    if (!enableAutoSave || !hasUnsavedChanges) return;
+    if (!enableAutoSave || !hasUnsavedChanges || !hasWriteAccess) return;
     
     const autoSaveTimer = setTimeout(() => {
       saveDocument().catch(err => {
@@ -251,6 +294,8 @@ export function EditorProvider({
     document,
     isLoading: isLoading || isConnecting,
     error: error || connectionError,
+    hasWriteAccess,
+    isReadOnly,
     
     // Editor state
     editor,
@@ -271,7 +316,7 @@ export function EditorProvider({
     
     // Document metadata
     documentTitle,
-    setDocumentTitle,
+    setDocumentTitle: handleDocumentTitleChange,
     hasUnsavedChanges,
     lastSaved,
     

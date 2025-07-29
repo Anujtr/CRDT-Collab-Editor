@@ -287,6 +287,72 @@ export function getTokenTimeToExpiry(token: string): number {
 }
 
 /**
+ * Generate a unique session ID for this tab/window
+ */
+export function generateSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+}
+
+/**
+ * Get the current session ID, creating one if it doesn't exist
+ */
+export function getSessionId(): string {
+  const existingId = window.sessionStorage.getItem('crdt-session-id');
+  if (existingId) {
+    return existingId;
+  }
+  
+  const newId = generateSessionId();
+  window.sessionStorage.setItem('crdt-session-id', newId);
+  return newId;
+}
+
+/**
+ * Session-aware storage helpers
+ */
+export const sessionStorageHelper = {
+  get: (key: string): any => {
+    try {
+      const item = window.sessionStorage.getItem(key);
+      return item ? JSON.parse(item) : null;
+    } catch (error) {
+      console.error(`Failed to get ${key} from sessionStorage:`, error);
+      return null;
+    }
+  },
+
+  set: (key: string, value: any): boolean => {
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch (error) {
+      console.error(`Failed to set ${key} in sessionStorage:`, error);
+      return false;
+    }
+  },
+
+  remove: (key: string): boolean => {
+    try {
+      window.sessionStorage.removeItem(key);
+      return true;
+    } catch (error) {
+      console.error(`Failed to remove ${key} from sessionStorage:`, error);
+      return false;
+    }
+  },
+
+  clear: (): boolean => {
+    try {
+      window.sessionStorage.clear();
+      return true;
+    } catch (error) {
+      console.error('Failed to clear sessionStorage:', error);
+      return false;
+    }
+  },
+};
+
+/**
  * Local storage helpers
  */
 export const storage = {
@@ -329,4 +395,96 @@ export const storage = {
       return false;
     }
   },
+
+  // Session-scoped storage methods
+  getSessionScoped: (key: string): any => {
+    const sessionId = getSessionId();
+    const sessionKey = `${key}-${sessionId}`;
+    return storage.get(sessionKey);
+  },
+
+  setSessionScoped: (key: string, value: any): boolean => {
+    const sessionId = getSessionId();
+    const sessionKey = `${key}-${sessionId}`;
+    return storage.set(sessionKey, value);
+  },
+
+  removeSessionScoped: (key: string): boolean => {
+    const sessionId = getSessionId();
+    const sessionKey = `${key}-${sessionId}`;
+    return storage.remove(sessionKey);
+  },
+
+  // Get all session-scoped keys for cleanup
+  getSessionKeys: (prefix: string): string[] => {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`${prefix}-session-`)) {
+        keys.push(key);
+      }
+    }
+    return keys;
+  },
+
+  // Clean up session-scoped data for inactive sessions
+  cleanupInactiveSessions: (prefix: string, activeSessionId: string): void => {
+    const sessionKeys = storage.getSessionKeys(prefix);
+    const activeSessionSuffix = `-${activeSessionId}`;
+    
+    sessionKeys.forEach(key => {
+      if (!key.endsWith(activeSessionSuffix)) {
+        storage.remove(key);
+      }
+    });
+  },
+
+  // Track active sessions for cleanup
+  registerActiveSession: (sessionId: string): void => {
+    const activeSessions = storage.get('crdt-active-sessions') || [];
+    if (!activeSessions.includes(sessionId)) {
+      activeSessions.push(sessionId);
+      storage.set('crdt-active-sessions', activeSessions);
+    }
+  },
+
+  unregisterActiveSession: (sessionId: string): void => {
+    const activeSessions = storage.get('crdt-active-sessions') || [];
+    const updatedSessions = activeSessions.filter((id: string) => id !== sessionId);
+    storage.set('crdt-active-sessions', updatedSessions);
+  },
 };
+
+/**
+ * Get the current authentication token from session-scoped storage
+ */
+export function getAuthToken(): string | null {
+  return storage.getSessionScoped('crdt-auth-token');
+}
+
+/**
+ * Get the current user data from session-scoped storage
+ */
+export function getCurrentUser(): any {
+  return storage.getSessionScoped('crdt-user-data');
+}
+
+/**
+ * Create authenticated headers for API requests
+ */
+export function createAuthHeaders(): HeadersInit {
+  const token = getAuthToken();
+  return {
+    'Authorization': token ? `Bearer ${token}` : '',
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * Check if user is currently authenticated
+ */
+export function isAuthenticated(): boolean {
+  const token = getAuthToken();
+  const user = getCurrentUser();
+  return !!(token && user && !isTokenExpired(token));
+}

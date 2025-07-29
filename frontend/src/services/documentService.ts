@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../utils/constants';
-import { storage } from '../utils';
+import { createAuthHeaders } from '../utils';
 import { DocumentMetadata, CreateDocumentFormData } from '../types';
 
 interface DocumentListResponse {
@@ -11,11 +11,7 @@ interface DocumentListResponse {
 
 class DocumentService {
   private getAuthHeaders(): HeadersInit {
-    const token = storage.get('crdt-auth-token');
-    return {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    };
+    return createAuthHeaders();
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {

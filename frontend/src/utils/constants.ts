@@ -7,6 +7,13 @@ export const TOKEN_STORAGE_KEY = 'crdt-auth-token';
 export const USER_STORAGE_KEY = 'crdt-user-data';
 export const REMEMBER_ME_STORAGE_KEY = 'crdt-remember-me';
 
+// Session Management
+export const SESSION_ID_KEY = 'crdt-session-id';
+export const SESSION_AUTH_PREFIX = 'crdt-session-auth';
+export const GLOBAL_AUTH_KEY = 'crdt-global-auth';
+export const SESSION_CLEANUP_KEY = 'crdt-session-cleanup';
+export const AUTH_SYNC_CHANNEL = 'crdt-auth-sync';
+
 // WebSocket
 export const WS_RECONNECT_INTERVAL = 3000;
 export const WS_MAX_RETRIES = 5;

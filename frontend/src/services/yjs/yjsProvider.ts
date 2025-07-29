@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { io, Socket } from 'socket.io-client';
-import { storage } from '../../utils';
+import { getAuthToken } from '../../utils';
 
 // Connection states for better state management
 enum ConnectionState {
@@ -101,7 +101,7 @@ export class YjsProvider {
       this.connectionState = ConnectionState.CONNECTING;
 
       // Get authentication token
-      const token = storage.get('crdt-auth-token');
+      const token = getAuthToken();
       if (!token) {
         throw new Error('Authentication token not found');
       }
@@ -188,7 +188,7 @@ export class YjsProvider {
       this.connectionRetries = 0;
       
       // Get token and authenticate immediately
-      const token = storage.get('crdt-auth-token');
+      const token = getAuthToken();
       if (token) {
         this.connectionState = ConnectionState.AUTHENTICATING;
         socketToUse.emit('authenticate', { token });

@@ -11,6 +11,7 @@ export interface Document {
   ownerId: string;
   collaborators: User[];
   isPublic: boolean;
+  hasWriteAccess?: boolean;
 }
 
 export interface DocumentMetadata {
@@ -23,6 +24,7 @@ export interface DocumentMetadata {
   collaboratorCount: number;
   isPublic: boolean;
   lastActivity: string;
+  hasWriteAccess?: boolean;
 }
 
 export interface User {

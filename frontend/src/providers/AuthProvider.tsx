@@ -1,8 +1,12 @@
-import React, { createContext, useContext, useEffect, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useCallback, useRef } from 'react';
 import { AuthState, User } from '../types';
 import { authService } from '../services/auth/authService';
-import { storage } from '../utils';
-import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY } from '../utils/constants';
+import { storage, getSessionId } from '../utils';
+import { 
+  TOKEN_STORAGE_KEY, 
+  USER_STORAGE_KEY, 
+  AUTH_SYNC_CHANNEL 
+} from '../utils/constants';
 
 interface AuthContextValue extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
@@ -90,35 +94,76 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const sessionId = useRef<string>(getSessionId());
+  const broadcastChannel = useRef<BroadcastChannel | null>(null);
 
   // Initialize authentication state on app load
   useEffect(() => {
     initializeAuth();
+    setupCrossTabSync();
+    
+    // Register this session as active
+    storage.registerActiveSession(sessionId.current);
+    
+    // Cleanup on unmount
+    return () => {
+      storage.unregisterActiveSession(sessionId.current);
+      if (broadcastChannel.current) {
+        broadcastChannel.current.close();
+      }
+    };
   }, []);
 
   const initializeAuth = async () => {
     try {
-      const storedToken = storage.get(TOKEN_STORAGE_KEY);
-      const storedUser = storage.get(USER_STORAGE_KEY);
-
-      if (storedToken && storedUser) {
-        // Verify token is still valid
-        const isValid = await authService.verifyToken(storedToken);
+      // First check session-scoped storage for this tab
+      const sessionToken = storage.getSessionScoped(TOKEN_STORAGE_KEY);
+      const sessionUser = storage.getSessionScoped(USER_STORAGE_KEY);
+      
+      if (sessionToken && sessionUser) {
+        // Verify session token is still valid
+        const isValid = await authService.verifyToken(sessionToken);
         
         if (isValid) {
           dispatch({
             type: 'AUTH_SUCCESS',
-            payload: { user: storedUser, token: storedToken },
+            payload: { user: sessionUser, token: sessionToken },
           });
+          return;
         } else {
-          // Token is invalid, clear stored data
+          // Session token is invalid, clear session data
+          storage.removeSessionScoped(TOKEN_STORAGE_KEY);
+          storage.removeSessionScoped(USER_STORAGE_KEY);
+        }
+      }
+      
+      // Fallback to global storage for backward compatibility
+      const globalToken = storage.get(TOKEN_STORAGE_KEY);
+      const globalUser = storage.get(USER_STORAGE_KEY);
+      
+      if (globalToken && globalUser) {
+        // Verify global token is still valid
+        const isValid = await authService.verifyToken(globalToken);
+        
+        if (isValid) {
+          // Migrate to session-scoped storage
+          storage.setSessionScoped(TOKEN_STORAGE_KEY, globalToken);
+          storage.setSessionScoped(USER_STORAGE_KEY, globalUser);
+          
+          dispatch({
+            type: 'AUTH_SUCCESS',
+            payload: { user: globalUser, token: globalToken },
+          });
+          return;
+        } else {
+          // Global token is invalid, clear global data
           storage.remove(TOKEN_STORAGE_KEY);
           storage.remove(USER_STORAGE_KEY);
-          dispatch({ type: 'AUTH_LOGOUT' });
         }
-      } else {
-        dispatch({ type: 'AUTH_LOGOUT' });
       }
+      
+      // No valid authentication found
+      dispatch({ type: 'AUTH_LOGOUT' });
     } catch (error) {
       console.error('Failed to initialize auth:', error);
       dispatch({ type: 'AUTH_LOGOUT' });
@@ -133,14 +178,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       const { user, token } = response;
 
-      // Store authentication data
-      storage.set(TOKEN_STORAGE_KEY, token);
-      storage.set(USER_STORAGE_KEY, user);
+      // Store authentication data in session-scoped storage
+      storage.setSessionScoped(TOKEN_STORAGE_KEY, token);
+      storage.setSessionScoped(USER_STORAGE_KEY, user);
 
       if (rememberMe) {
         // Store remember me preference for auto-login
         storage.set('rememberMe', true);
       }
+      
+      // Notify other tabs about auth change
+      notifyAuthChange('login', { user, token });
 
       dispatch({
         type: 'AUTH_SUCCESS',
@@ -161,9 +209,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       
       const { user, token } = response;
 
-      // Store authentication data
-      storage.set(TOKEN_STORAGE_KEY, token);
-      storage.set(USER_STORAGE_KEY, user);
+      // Store authentication data in session-scoped storage
+      storage.setSessionScoped(TOKEN_STORAGE_KEY, token);
+      storage.setSessionScoped(USER_STORAGE_KEY, user);
+      
+      // Notify other tabs about auth change
+      notifyAuthChange('register', { user, token });
 
       dispatch({
         type: 'AUTH_SUCCESS',
@@ -186,10 +237,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('Failed to logout on server:', error);
       // Continue with local logout even if server logout fails
     } finally {
-      // Clear local storage
-      storage.remove(TOKEN_STORAGE_KEY);
-      storage.remove(USER_STORAGE_KEY);
+      // Clear session-scoped storage
+      storage.removeSessionScoped(TOKEN_STORAGE_KEY);
+      storage.removeSessionScoped(USER_STORAGE_KEY);
       storage.remove('rememberMe');
+      
+      // Notify other tabs about logout
+      notifyAuthChange('logout', null);
 
       dispatch({ type: 'AUTH_LOGOUT' });
     }
@@ -204,9 +258,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const response = await authService.refreshToken(state.token);
       const { user, token } = response;
 
-      // Update stored data
-      storage.set(TOKEN_STORAGE_KEY, token);
-      storage.set(USER_STORAGE_KEY, user);
+      // Update session-scoped stored data
+      storage.setSessionScoped(TOKEN_STORAGE_KEY, token);
+      storage.setSessionScoped(USER_STORAGE_KEY, user);
+      
+      // Notify other tabs about token refresh
+      notifyAuthChange('refresh', { user, token });
 
       dispatch({
         type: 'AUTH_SUCCESS',
@@ -220,12 +277,110 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [state.token, logout]);
 
   const updateUser = useCallback((user: User) => {
-    storage.set(USER_STORAGE_KEY, user);
+    storage.setSessionScoped(USER_STORAGE_KEY, user);
+    
+    // Notify other tabs about user update
+    notifyAuthChange('update', { user, token: state.token });
+    
     dispatch({ type: 'UPDATE_USER', payload: user });
-  }, []);
+  }, [state.token]);
 
   const clearError = useCallback(() => {
     dispatch({ type: 'CLEAR_ERROR' });
+  }, []);
+
+  // Cross-tab communication setup
+  const setupCrossTabSync = useCallback(() => {
+    // Set up BroadcastChannel for real-time communication
+    if (typeof BroadcastChannel !== 'undefined') {
+      broadcastChannel.current = new BroadcastChannel(AUTH_SYNC_CHANNEL);
+      
+      broadcastChannel.current.addEventListener('message', (event) => {
+        const { type, sessionId: senderSessionId, data } = event.data;
+        
+        // Ignore messages from our own session
+        if (senderSessionId === sessionId.current) {
+          return;
+        }
+        
+        handleCrossTabAuthChange(type, data);
+      });
+    }
+    
+    // Set up localStorage event listener for fallback
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === AUTH_SYNC_CHANNEL) {
+        try {
+          const data = JSON.parse(event.newValue || '{}');
+          const { type, sessionId: senderSessionId, data: authData } = data;
+          
+          // Ignore messages from our own session
+          if (senderSessionId === sessionId.current) {
+            return;
+          }
+          
+          handleCrossTabAuthChange(type, authData);
+        } catch (error) {
+          console.error('Failed to parse cross-tab auth message:', error);
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  // Handle authentication changes from other tabs
+  const handleCrossTabAuthChange = useCallback((type: string, data: any) => {
+    switch (type) {
+      case 'login':
+      case 'register':
+      case 'refresh':
+        // Another tab logged in - we can show a notification but keep current session
+        console.log(`Another tab performed ${type} with user:`, data?.user?.username);
+        break;
+        
+      case 'logout':
+        // Another tab logged out - we can show a notification but keep current session
+        console.log('Another tab logged out');
+        break;
+        
+      case 'update':
+        // Another tab updated user data - sync if it's the same user
+        if (state.user && data?.user && state.user.id === data.user.id) {
+          dispatch({ type: 'UPDATE_USER', payload: data.user });
+        }
+        break;
+        
+      default:
+        break;
+    }
+  }, [state.user]);
+
+  // Notify other tabs about authentication changes
+  const notifyAuthChange = useCallback((type: string, data: any) => {
+    const message = {
+      type,
+      sessionId: sessionId.current,
+      data,
+      timestamp: Date.now(),
+    };
+    
+    // Send via BroadcastChannel if available
+    if (broadcastChannel.current) {
+      broadcastChannel.current.postMessage(message);
+    }
+    
+    // Fallback to localStorage event
+    storage.set(AUTH_SYNC_CHANNEL, message);
+    
+    // Clean up the sync message after a short delay
+    setTimeout(() => {
+      storage.remove(AUTH_SYNC_CHANNEL);
+    }, 100);
   }, []);
 
   const value: AuthContextValue = {
